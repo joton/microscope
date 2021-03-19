@@ -26,7 +26,10 @@ import logging
 import microscope
 import microscope._utils
 import os
+import socket
 import threading
+import numpy as np
+
 from PyQt5.QtWidgets import QApplication, QDesktopWidget, QLabel, QMainWindow
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -118,6 +121,67 @@ class HDMIslm(microscope.abc.Device):
                 self._update_pattern()
                 return
         raise RuntimeError(f"No sequence found for angle {theta}")
+
+
+class D5020(microscope.abc.Device):
+
+    _socket = None
+    
+    # TODO: understand who is passing index on construction.
+
+    def __init__(self, host=None, port=None, calibration=None, ch=1, index=0):
+        super().__init__()
+
+        self.host = host
+        self.port = port
+        self.ch = ch
+        self.sequence = {}
+        self.idx_image = 0
+        self.calibration = calibration
+        # Initialize the hardware link
+        self.initialize()
+
+    def initialize(self):
+        """Initialise the rotator.
+
+        Open the connection and initialize main parameters.
+
+        """
+        try:
+            self._socket = socket.create_connection((self.host, self.port))
+
+        except socket.error as msg:
+            _logger.error("ERROR: {}\n".format(msg))
+
+    def _do_shutdown(self) -> None:
+        if self._socket is not None:
+            self._socket.close()
+
+    def _vcheck(self, v):  # voltage check
+        return max(0, min(v, 10000))
+
+    def set_voltage(self, voltage: int):
+        voltage = int(self._vcheck(voltage))
+        cmd = f"inv:{self.ch},{voltage}"
+        self._socket.send(cmd.encode() + b"\n")
+        ans = self._socket.recv(1024)
+
+    def set_sim_sequence(self, sequence):
+        self.sequence = dict(enumerate(sequence))
+        
+    def getCurrentPosition(self):
+        return self.idx_image
+
+    def cycleToPosition(self, target_position):
+        self.idx_image = target_position
+        self.set_sim_diffraction_angle(target_position)
+
+    def get_sim_diffraction_angle(self) -> float:
+        return self.sequence[self.idx_image][0]
+
+    def set_sim_diffraction_angle(self, theta):
+        v = np.interp(theta, self.calibration[0], self.calibration[1])
+        self.set_voltage(v)
 
 
 def main():
