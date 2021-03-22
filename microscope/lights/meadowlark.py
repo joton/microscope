@@ -126,7 +126,7 @@ class HDMIslm(microscope.abc.Device):
 class D5020(microscope.abc.Device):
 
     _socket = None
-    
+
     # TODO: understand who is passing index on construction.
 
     def __init__(self, host=None, port=None, calibration=None, ch=1, index=0):
@@ -168,7 +168,7 @@ class D5020(microscope.abc.Device):
 
     def set_sim_sequence(self, sequence):
         self.sequence = dict(enumerate(sequence))
-        
+
     def getCurrentPosition(self):
         return self.idx_image
 

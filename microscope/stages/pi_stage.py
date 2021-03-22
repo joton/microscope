@@ -17,13 +17,33 @@
 ## You should have received a copy of the GNU General Public License
 ## along with Microscope.  If not, see <http://www.gnu.org/licenses/>.
 
-"""PI E754 piezo stage device.
+"""PI piezo stage devices.
 
-This class allows piezo stages controlled with PI E754 to be exposed over Pyro.
+This class allows piezo stages to be controlled over Pyro.
+The construction of microscope device could be done as:
+
+PIE754_CONF = dict(url='socket://127.0.0.2:50000')
+DEVICES = [
+    device(pi_stage.PIe754, host, port, conf=PIE754_CONF),
+]
+
+# TO BE TESTED #
+For serial controllers one could use ser2net to allow socket communication.
+The configuration would be:
+/etc/ser2net.conf
+3000:telnet:600:/dev/ttyS0:19200 8DATABITS NONE 1STOPBIT
+
+And construct the device as:
+    
+PIM687_CONF = dict(url='rfc2217://127.0.0.3:3000')
+DEVICES = [
+    device(pi_stage.PIm687, host, port, conf=PIM687_CONF),
+]
+
 """
 
 import logging
-import socket
+import serial
 import microscope
 import typing
 from .pi_message import PI_CTRL_ERROR
@@ -85,30 +105,35 @@ class PIaxis(microscope.abc.StageAxis):
             self.stage._send_cmd("ATZ {}".format(int(self.axis)))
 
 
-class PIe754(microscope.abc.Stage):
+class PIstage(microscope.abc.Stage):
 
-    _socket = None
+    _comm = None
 
     # TODO: understand who is passing index on construction.
-    def __init__(self, host=None, port=None, index=0):
+    def __init__(self, url=None, index=0):
         super().__init__()
-        self.host = host
-        self.port = port
+        self.url = url
 
-        self.axis = {"z": PIaxis(self, 1)}
+        for k, v in self.axis.items():
+            self.axis[k] = PIaxis(self, v)
 
         self.initialize()
 
     def initialize(self):
         """Initialise the stage.
 
-        Open the connection and initialize main parameters.
+        Open the communication and initialize main parameters.
 
         """
+
         try:
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.connect((self.host, int(self.port)))
-        except socket.error as msg:
+            self._comm = serial.serial_for_url(self.url)
+            self._comm.timeout = 0.1
+        except Exception as e:
+            if hasattr(e, "message"):
+                msg = e.message
+            else:
+                msg = e
             _logger.error("ERROR: {}\n".format(msg))
 
         # Set all axis in close-loop
@@ -116,16 +141,16 @@ class PIe754(microscope.abc.Stage):
             axis.close_loop = True
 
     def _do_shutdown(self) -> None:
-        if self._socket is not None:
-            self._socket.close()
+        if self._comm is not None:
+            self._comm.close()
 
     def _send_cmd(self, cmd):
-        self._socket.send(cmd.encode() + b"\n")
+        self._comm.write(cmd.encode() + b"\n")
 
     def _ask_cmd(self, cmd):
         try:
             self._send_cmd(cmd)
-            ans = self._socket.recv(1024)
+            ans = self._comm.read(1024)
         except:
             raise
         return ans.decode()
@@ -141,7 +166,7 @@ class PIe754(microscope.abc.Stage):
         return self.get_error()
 
     def get_error(self):
-        err = int(self._ask_cmd("ERR?"))
+        err = int(self._ask_cmd("ERR?").strip())
         if err > 0:
             msg = PI_CTRL_ERROR[err]
             _logger.error("ERROR[{}] {}\n".format(err, msg))
@@ -158,3 +183,11 @@ class PIe754(microscope.abc.Stage):
     def move_to(self, position: typing.Mapping[str, float]) -> None:
         for name, pos in position:
             self.axis[name].move_to(pos)
+
+
+class PIe754(PIstage):
+    axis = {"z": 1}
+
+
+class PIm687(PIstage):
+    axis = {"y": 1, "x": 2}
