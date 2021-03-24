@@ -104,7 +104,7 @@ class Status:
         This bit is set, if an external light sensor is connected to the device.
         (LedHUB controller only)
         """
-        self.external_sensor_connected = bit_enabled(bytes[1], 5)
+        self.external_sensorconnectionected = bit_enabled(bytes[1], 5)
 
     def __repr__(self) -> str:
         return """{{
@@ -116,11 +116,12 @@ class Status:
             "key_switch": {},
             "toggle_key": {},
             "system_power": {},
-            "external_sensor_connected": {}
+            "external_sensorconnectionected": {}
         }}""".format(self.error, self.on, self.preheating,
                      self.attention_required, self.enabled_pin, self.key_switch,
                      self.toggle_key, self.system_power,
-                     self.external_sensor_connected)
+                     self.external_sensorconnectionected)
+
 
 
 class LatchedFailure:
@@ -323,22 +324,41 @@ class OmicronLaser(
     `TriggerMode.SOFTWARE`.
 
     """
-
+    @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask(self, question: bytes) -> str:
-        self._conn.write(b"?" + question + b"|\r")
-        raw = self._conn.read_until(b'\r')
+        self.connection.write(b"?" + question + b"|\r")
+        raw = self.connection.read_until(b'\r')
         return raw[:-1].decode("Latin1")[4:].split("|")
 
+    @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask_bytes(self, question: bytes) -> bytes:
-        self._conn.write(b"?" + question + b"|\r")
-        return self._conn.read_until(b'\r')[4:-1]
+        self.connection.write(b"?" + question + b"|\r")
+        return self.connection.read_until(b'\r')[4:-1]
 
+    @microscope.abc.SerialDeviceMixin.lock_comms
     def _set(self, what: bytes, value: bytes) -> str:
-        self._conn.write(b"?" + what + value + b"|\r")
-        return self._conn.read_until(b'\r')[:-1].decode("Latin1")[4:].split("|")
+        self.connection.write(b"?" + what + value + b"|\r")
+        return self.connection.read_until(b'\r')[:-1].decode("Latin1")[4:].split("|")
+
+    @microscope.abc.SerialDeviceMixin.lock_comms
+    def reset(self) -> bool:
+        self.connection.write(b"?RsC\r")
+        response = self.connection.read_until(b'\r')
+        recv = response == b"!RsC\r"
+        logging.info("Reset command received. Laser reponse: {}".format(recv))
+
+        if recv:
+            response = self.connection.read_until(b'\r')
+            while response != b'\x00$RsC>\r':
+                response += self.connection.read_until(b'\r')
+                logging.info(
+                    "Reset in course, Laser response: {}".format(response))
+            return True
+
+        return False
 
     def _process_adhoc(self):
-        raw = self._conn.read_until(b'\r')
+        raw = self.connection.read_until(b'\r')
         while raw != b'':
             decoded = raw[:-1].decode("Latin1")
             command = decoded[:4]
@@ -346,21 +366,15 @@ class OmicronLaser(
             if command.startswith("$TPP"):
                 self.temporal_power = float(content[0])
 
-            raw = self._conn.read_until(b'\r')
+            raw = self.connection.read_until(b'\r')
 
     def get_maximum_power(self):
         return float(self._ask(b"GMP")[0])
 
     def __init__(self, com=None, baud=500000, timeout=0.01, **kwargs):
         super().__init__(**kwargs)
-        self.connection = serial.Serial(
-            port=com,
-            baudrate=baud,
-            timeout=timeout,
-            stopbits=serial.STOPBITS_ONE,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-        )
+        self.connection = serial.serial_for_url("COM4", baudrate=baud)
+        self.connection.read_all()
 
         firmware = self._ask(b"GFw")
         self.model_code = firmware[0]
@@ -371,92 +385,73 @@ class OmicronLaser(
 
         specs = self._ask(b"GSI")
         self.wavelength = specs[0]
-        self.power = specs[1]
+        self.laser_power = specs[1]
 
-        self.max_power = self._ask(b"GMP")
-
-        _logger.info(
+        _logger.warning(
             f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {firmware}.")
-        _logger.info(f"\tSerial Number: {self.serial_number}")
-        _logger.info(f"\tWavelength: {self.wavelength}")
-        _logger.info(f"\tPower: {self.power}")
-        _logger.info(f"\tMax Power: {self.max_power}")
+        _logger.warning(f"\tSerial Number: {self.serial_number}")
+        _logger.warning(f"\tWavelength: {self.wavelength}")
+        _logger.warning(f"\tPower: {self.laser_power}")
 
-        self._max_power_mw = float(self.max_power)
+        self._max_power_mw = float(self.laser_power)
 
         self.initialize()
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
-    def reset(self) -> bool:
-        self._conn.write(b"?RsC\r")
-        response = self._conn.read_until(b'\r')
-        recv = response == b"!RsC\r"
-        logging.info("Reset command received. Laser reponse: {}".format(recv))
-
-        if recv:
-            response = self._conn.read_until(b'\r')
-            while response != b'\x00$RsC>\r':
-                response += self._conn.read_until(b'\r')
-                logging.info(
-                    "Reset in course, Laser response: {}".format(response))
-            return True
-
-        return False
-
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def get_status(self) -> Status:
         self.status = Status(self._ask_bytes(b"GAS"))
         return self.status
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
+    
     def power_on(self) -> bool:
         response = self._ask(b"POn")[0]
         return response == ">"
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def power_off(self) -> bool:
         response = self._ask(b"POf")[0]
         return response == ">"
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def laser_off(self) -> bool:
         response = self._ask(b"LOf")[0]
         return response == ">"
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+
     def laser_on(self) -> bool:
         response = self._ask(b"LOn")[0]
         return response == ">"
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def measure_diode_power(self) -> float:
         return float(self._ask(b"MDP")[0])
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def get_level_power(self):
         response = self._ask(b"GLP")[0]
         return int(response, 16)
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def set_level_power(self, value: int) -> bool:
         response = self._set(b"SLP", hex(value)[2:].encode("Latin1"))
         self._process_adhoc()
         return response == ">"
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def _do_shutdown(self) -> None:
         # Disable laser.
         self.laser_off()
         self.power_off()
+        self.connection.flushInput()
 
     #  Initialization to do when cockpit connects.
-    @microscope.abc.SerialDeviceMixin.lock_comms
+    
     def initialize(self):
+        self.connection.flushInput()
         self.power_on()
 
     # Turn the laser ON. Return True if we succeeded, False otherwise.
-
-    @microscope.abc.SerialDeviceMixin.lock_comms
     def _do_enable(self):
         _logger.info("Turning laser ON.")
         self.laser_on()
@@ -469,24 +464,20 @@ class OmicronLaser(
         return True
 
     # Turn the laser OFF.
-    @microscope.abc.SerialDeviceMixin.lock_comms
     def disable(self):
         _logger.info("Turning laser OFF.")
         self.laser_off()
 
     # Return True if the laser is currently able to produce light.
-    @microscope.abc.SerialDeviceMixin.lock_comms
     def get_is_on(self):
         return self.get_status().on
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
     def _get_power_mw(self) -> float:
         if not self.get_is_on():
             return 0.0
         else:
             return self.measure_diode_power()
 
-    @microscope.abc.SerialDeviceMixin.lock_comms
     def _set_power_mw(self, mW: float) -> None:
         level = int(mW/self._max_power_mw * 0xFFF)
 
