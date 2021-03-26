@@ -419,23 +419,27 @@ class OmicronLaser(
         return self.operation_mode
     
     def power_on(self) -> bool:
-        response = self._ask(b"POn")[0]
-        return response == ">"
+        response = self._ask(b"POn")[0] == ">"
+        _logger.warning(f"Power on: {response}")
+        return response
 
     
     def power_off(self) -> bool:
-        response = self._ask(b"POf")[0]
-        return response == ">"
+        response = self._ask(b"POf")[0] == ">"
+        _logger.warning(f"Power off: {response}")
+        return response
 
     
     def laser_off(self) -> bool:
-        response = self._ask(b"LOf")[0]
-        return response == ">"
+        response = self._ask(b"LOf")[0] == ">"
+        _logger.warning(f"Laser off: {response}")
+        return response
 
 
     def laser_on(self) -> bool:
-        response = self._ask(b"LOn")[0]
-        return response == ">"
+        response = self._ask(b"LOn")[0] == ">"
+        _logger.warning(f"Laser on: {response}")
+        return response
 
     
     def measure_diode_power(self) -> float:
@@ -449,12 +453,13 @@ class OmicronLaser(
     
     def set_level_power(self, value: int) -> bool:
         response = self._set(b"SLP", hex(value)[2:].encode("Latin1"))
-        self._process_adhoc()
+        # self._process_adhoc()
         return response == ">"
 
     
     def _do_shutdown(self) -> None:
         # Disable laser.
+        _logger.warning("Shuting down...")
         self.laser_off()
         self.power_off()
         self.connection.flushInput()
@@ -462,23 +467,45 @@ class OmicronLaser(
     #  Initialization to do when cockpit connects.
     
     def initialize(self):
+        _logger.warning("Initializing...")
         self.connection.flushInput()
         self.power_on()
-        self.level = self._get_power_mw()
+        
+
+    def _get_power_mw(self) -> float:
+        measured = self.measure_diode_power()
+        _logger.warning(f"_get_power_mw {measured} -> {measured / self._max_power_mw }")
+        return measured
+
+
+    # setPower callback
+    def _set_power_mw(self, mW: float) -> None:
+        self.level = int(mW/self._max_power_mw * 0xFFF)
+        _logger.info(f"Setting laser power to {self.level}, {mW} mW.")
+        self.set_level_power(self.level)
+
 
     def _do_set_power(self, power: float) -> None:
-        self._set_power_mw(power * self._max_power_mw)
+        level = int(power * 0xFFF)
+
+        _logger.warning(f"Setting laser power to {level}, {power} power, {power * self._max_power_mw}.")        
+        self.set_level_power(level)
+
 
     def _do_get_power(self) -> float:
-        return self._get_power_mw() / self._max_power_mw
+        print("_do_get_power")
+        return self._get_power_mw()
 
-    ### Methods needed for cockpit handlers
+    def get_max_power_mw(self) -> float:
+        return self._max_power_mw
+
+    def get_set_power_mw(self) -> float:
+        return (self.level / 0xFFF) * self._max_power_mw
 
     # Turn the laser ON. Return True if we succeeded, False otherwise.
     def _do_enable(self):
-        _logger.info("Turning laser ON.")
         self.is_on = self.laser_on()
-
+        _logger.warning(f"Laser on: {self.is_on}")
         if not self.is_on:
             # Something went wrong.
             _logger.error("Failed to turn on. Current status:\r\n")
@@ -488,30 +515,11 @@ class OmicronLaser(
 
     # Turn the laser OFF.
     def _do_disable(self):
-        _logger.info("Turning laser OFF.")
-        self.laser_off()
+        self.is_on = not self.laser_off()
+        _logger.warning(f"Laser off: {not self.is_on}")
 
-    # getPower callback
-    def _get_power_mw(self) -> float:
-        if not self.get_is_on():
-            return 0.0
-        else:
-            return self.measure_diode_power()
 
-    # setPower callback
-    def _set_power_mw(self, mW: float) -> None:
-        self.level = int(mW/self._max_power_mw * 0xFFF)
 
-        _logger.info(f"Setting laser power to {level}, {mW} mW.")
-        self.set_level_power(level)
-
-    def get_max_power_mw(self) -> float:
-        return self._max_power_mw
-
-    def get_set_power_mw(self) -> float:
-        return self.level
-
-    # Return True if the laser is currently able to produce light.
     def get_is_on(self):
+        _logger.warning(f"is on: {self.is_on}")
         return self.is_on
-
