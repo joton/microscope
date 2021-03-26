@@ -29,20 +29,22 @@ import microscope.abc
 _logger = logging.getLogger(__name__)
 
 
-def bit_enabled(byte: bytes, pos: int) -> bool:
-    return int(byte) & (0x01 << pos) != 0
+def bit_enabled(code: bytes, pos: int) -> bool:
+    return (int(code, 16) & (0x01 << pos)) != 0
 
 
 class Status:
 
     def __init__(self, bytes) -> None:
+        self._bytes = bytes
+        print("Bytes: ", self._bytes)
         """
         This bit indicates whetherany preceded or pending error prevents the 
         devicefrom starting into normal operation. Only if this bit is unset 
         the laser/ledwill operate as expected. Please refer to the 
         “error handling” chapter for details.
         """
-        self.error = bit_enabled(bytes[0], 0)
+        self.error = bit_enabled(bytes, 0)
 
         """
         If the bit is set the laser/led is switched on and the working hours
@@ -50,7 +52,7 @@ class Status:
         the laser/led from emitting light. Please refer to the “Best practices”
         chapter for details.
         """
-        self.on = bit_enabled(bytes[0], 1)
+        self.on = bit_enabled(bytes, 1)
 
         """
         This bit indicates if the device is actually preheating. This is a 
@@ -60,7 +62,7 @@ class Status:
         after the diode temperature has reached the valid range the laser/led 
         will start into operation.
         """
-        self.preheating = bit_enabled(bytes[0], 2)
+        self.preheating = bit_enabled(bytes, 2)
 
         """
         This bit is signalized if a situation occurred that needs special 
@@ -72,7 +74,7 @@ class Status:
         point. (see QuixX manual for details).
         For all other devices this bit is reserved
         """
-        self.attention_required = bit_enabled(bytes[0], 4)
+        self.attention_required = bit_enabled(bytes, 4)
 
         """
         This bit represents the state of the laser-enable/led-enable input pin 
@@ -80,34 +82,35 @@ class Status:
         connected it will stay active and the bit is set.LedHUB: the bit is 
         set if “shutter” on the front panelis set to “open”
         """
-        self.enabled_pin = bit_enabled(bytes[0], 6)
+        self.enabled_pin = bit_enabled(bytes, 6)
 
         """
         This bit represents the state of the key-switch input pin at the 
         control-port.
         """
-        self.key_switch = bit_enabled(bytes[0], 7)
+        self.key_switch = bit_enabled(bytes, 7)
 
         """
         This bit relies to laserCDRH operation only. If the bit is set,a
         key-switch toggle is needed to release laser operation.
         """
-        self.toggle_key = bit_enabled(bytes[1], 0)
+        self.toggle_key = bit_enabled(bytes, 8)
 
         """
         If the bit is set,the laser/ledsystem is powered-up. This will happen
         automatically if the laser/led is in auto power-up mode (default state).
         """
-        self.system_power = bit_enabled(bytes[1], 1)
+        self.system_power = bit_enabled(bytes, 9)
 
         """
         This bit is set, if an external light sensor is connected to the device.
         (LedHUB controller only)
         """
-        self.external_sensorconnectionected = bit_enabled(bytes[1], 5)
+        self.external_sensorconnectionected = bit_enabled(bytes, 13)
 
     def __repr__(self) -> str:
         return """{{
+            "bytes": {},
             "error": {},
             "on": {},
             "preheating": {},
@@ -117,7 +120,7 @@ class Status:
             "toggle_key": {},
             "system_power": {},
             "external_sensorconnectionected": {}
-        }}""".format(self.error, self.on, self.preheating,
+        }}""".format(self._bytes, self.error, self.on, self.preheating,
                      self.attention_required, self.enabled_pin, self.key_switch,
                      self.toggle_key, self.system_power,
                      self.external_sensorconnectionected)
@@ -132,7 +135,7 @@ class LatchedFailure:
         (safety lockout). This bit is signalized in the “Get Actual Status” 
         value (bit 0), too. 
         """
-        self.error_state = bit_enabled(bytes[0], 0)
+        self.error_state = bit_enabled(bytes, 0)
 
         """
         This error bit may be signaled in two situations:
@@ -141,7 +144,7 @@ class LatchedFailure:
         - a laser is not configured as CDHR compliant (OEM) but a CDRH-kit is 
           connected.
         """
-        self.CDRH = bit_enabled(bytes[0], 4)
+        self.CDRH = bit_enabled(bytes, 4)
 
         """
         A controller<->headcommunication error occurred.With PhoxX lasers this
@@ -149,13 +152,13 @@ class LatchedFailure:
         controller or the cable is defect.Otherwise this indicates serious 
         electronic problems.
         """
-        self.internal_comunication_error = bit_enabled(bytes[0], 5)
+        self.internal_comunication_error = bit_enabled(bytes, 5)
 
         """
         An internal error occurred(the K1 relay did not operate).This indicates 
         serious electronic problems
         """
-        self.k1_relay_error = bit_enabled(bytes[0], 6)
+        self.k1_relay_error = bit_enabled(bytes, 6)
 
         """
         (Possible with PhoxX lasers only) some diodes of PhoxX lasers need a
@@ -164,13 +167,13 @@ class LatchedFailure:
         the actual connected low power controller is not suitable to drive the 
         connected high power laser head.
         """
-        self.high_power = bit_enabled(bytes[0], 7)
+        self.high_power = bit_enabled(bytes, 7)
 
         """
         an under voltage or overvoltage occurred.(is still pending ifbit is set 
         in “Get Failure Byte” command)
         """
-        self.under_over_voltage = bit_enabled(bytes[1], 0)
+        self.under_over_voltage = bit_enabled(bytes, 8)
 
         """
         The external interlock loop was open.(it is still open if this bit is
@@ -179,40 +182,40 @@ class LatchedFailure:
         interlock loop is still open, since the device will automatically reset
         itself after the interlock is closed again.
         """
-        self.external_interlock = bit_enabled(bytes[1], 1)
+        self.external_interlock = bit_enabled(bytes, 9)
 
         """
         The diode currentexceeded the maximum allowed value.
         """
-        self.diode_current = bit_enabled(bytes[1], 2)
+        self.diode_current = bit_enabled(bytes, 10)
 
         """
         The ambient temperaturein the laser head exceededthe valid temperature 
         range. (still exceeds if bit is set in “Get Failure Byte” command)
         """
-        self.ambient_temp = bit_enabled(bytes[1], 3)
+        self.ambient_temp = bit_enabled(bytes, 11)
 
         """
         The diode temperatureexceededthe valid temperature range.(still exceeds 
         if bit is set in “Get Failure Byte” command)
         """
-        self.diode_temp = bit_enabled(bytes[1], 4)
+        self.diode_temp = bit_enabled(bytes, 12)
 
         """
         The test error was triggered.This test error can be triggered by 
         sending “?TIS” (test interlock state).
         """
-        self.test_error = bit_enabled(bytes[1], 5)
+        self.test_error = bit_enabled(bytes, 13)
 
         """
         An internal error occurred. This indicates serious electronic problems.
         """
-        self.internal_error = bit_enabled(bytes[1], 6)
+        self.internal_error = bit_enabled(bytes, 14)
 
         """
         The diode power exceeded the maximum allowed value.
         """
-        self.diode_power = bit_enabled(bytes[1], 7)
+        self.diode_power = bit_enabled(bytes, 15)
 
     def __repr__(self) -> str:
         return """{{
@@ -239,18 +242,18 @@ class LatchedFailure:
 
 class OperationMode:
     def __init__(self, bytes) -> None:
-        self.internal_clock_generator = bit_enabled(bytes[0], 2)
-        self.bias_level_release = bit_enabled(bytes[0], 3)
-        self.operating_level_release = bit_enabled(bytes[0], 4)
-        self.digital_input_release = bit_enabled(bytes[0], 5)
-        self.analog_input_release = bit_enabled(bytes[0], 7)
+        self.internal_clock_generator = bit_enabled(bytes, 2)
+        self.bias_level_release = bit_enabled(bytes, 3)
+        self.operating_level_release = bit_enabled(bytes, 4)
+        self.digital_input_release = bit_enabled(bytes, 5)
+        self.analog_input_release = bit_enabled(bytes, 7)
 
-        self.APC_mode = bit_enabled(bytes[1], 0)
-        self.digital_input_impedance = bit_enabled(bytes[1], 3)
-        self.analog_input_impedance = bit_enabled(bytes[1], 4)
-        self.usb_adhoc_mode = bit_enabled(bytes[1], 5)
-        self.auto_startup = bit_enabled(bytes[1], 6)
-        self.auto_powerup = bit_enabled(bytes[1], 7)
+        self.APC_mode = bit_enabled(bytes, 8)
+        self.digital_input_impedance = bit_enabled(bytes, 11)
+        self.analog_input_impedance = bit_enabled(bytes, 12)
+        self.usb_adhoc_mode = bit_enabled(bytes, 13)
+        self.auto_startup = bit_enabled(bytes, 14)
+        self.auto_powerup = bit_enabled(bytes, 15)
 
     def __repr__(self) -> str:
         return """{{ "hex": "{}", "bin": "{}", 
@@ -375,6 +378,7 @@ class OmicronLaser(
         super().__init__(**kwargs)
         self.connection = serial.serial_for_url("COM4", baudrate=baud)
         self.connection.read_all()
+        self.is_on = False
 
         firmware = self._ask(b"GFw")
         self.model_code = firmware[0]
@@ -386,23 +390,33 @@ class OmicronLaser(
         specs = self._ask(b"GSI")
         self.wavelength = specs[0]
         self.laser_power = specs[1]
-
+        
         _logger.warning(
-            f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {firmware}.")
+            f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}.")
         _logger.warning(f"\tSerial Number: {self.serial_number}")
         _logger.warning(f"\tWavelength: {self.wavelength}")
         _logger.warning(f"\tPower: {self.laser_power}")
 
         self._max_power_mw = float(self.laser_power)
-
+        self.level = 0.0 
+        
         self.initialize()
 
     
     def get_status(self) -> Status:
-        self.status = Status(self._ask_bytes(b"GAS"))
+        code = self._ask_bytes(b"GAS")
+        self.status = Status(code)
         return self.status
 
-    
+    def get_latched_failure(self) -> LatchedFailure:
+        code = self._ask_bytes(b"GLF")
+        self.latched_failure = LatchedFailure(code)
+        return self.latched_failure
+
+    def get_operation_mode(self) -> OperationMode:
+        code = self._ask_bytes(b"GOM")
+        self.operation_mode = OperationMode(code)
+        return self.operation_mode
     
     def power_on(self) -> bool:
         response = self._ask(b"POn")[0]
@@ -450,13 +464,22 @@ class OmicronLaser(
     def initialize(self):
         self.connection.flushInput()
         self.power_on()
+        self.level = self._get_power_mw()
+
+    def _do_set_power(self, power: float) -> None:
+        self._set_power_mw(power * self._max_power_mw)
+
+    def _do_get_power(self) -> float:
+        return self._get_power_mw() / self._max_power_mw
+
+    ### Methods needed for cockpit handlers
 
     # Turn the laser ON. Return True if we succeeded, False otherwise.
     def _do_enable(self):
         _logger.info("Turning laser ON.")
-        self.laser_on()
+        self.is_on = self.laser_on()
 
-        if not self.get_status().on:
+        if not self.is_on:
             # Something went wrong.
             _logger.error("Failed to turn on. Current status:\r\n")
             _logger.error(self.get_status())
@@ -464,28 +487,31 @@ class OmicronLaser(
         return True
 
     # Turn the laser OFF.
-    def disable(self):
+    def _do_disable(self):
         _logger.info("Turning laser OFF.")
         self.laser_off()
 
-    # Return True if the laser is currently able to produce light.
-    def get_is_on(self):
-        return self.get_status().on
-
+    # getPower callback
     def _get_power_mw(self) -> float:
         if not self.get_is_on():
             return 0.0
         else:
             return self.measure_diode_power()
 
+    # setPower callback
     def _set_power_mw(self, mW: float) -> None:
-        level = int(mW/self._max_power_mw * 0xFFF)
+        self.level = int(mW/self._max_power_mw * 0xFFF)
 
         _logger.info(f"Setting laser power to {level}, {mW} mW.")
-        return self.set_level_power(level)
+        self.set_level_power(level)
 
-    def _do_set_power(self, power: float) -> None:
-        self._set_power_mw(power * self._max_power_mw)
+    def get_max_power_mw(self) -> float:
+        return self._max_power_mw
 
-    def _do_get_power(self) -> float:
-        return self._get_power_mw() / self._max_power_mw
+    def get_set_power_mw(self) -> float:
+        return self.level
+
+    # Return True if the laser is currently able to produce light.
+    def get_is_on(self):
+        return self.is_on
+
