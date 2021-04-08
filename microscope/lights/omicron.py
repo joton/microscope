@@ -137,8 +137,8 @@ class LatchedFailure:
     def __init__(self, bytes) -> None:
         """
         This bit indicates that the laser system is in internal error state
-        (safety lockout). This bit is signalized in the “Get Actual Status”
-        value (bit 0), too.
+        (safety lockout). This bit is signalized in the “Get Actual Status” 
+        value (bit 0), too. 
         """
         self.error_state = bit_enabled(bytes, 0)
 
@@ -416,16 +416,17 @@ class OmicronLaser(
         self.wavelength = specs[0]
         self.laser_power = specs[1]
 
-        _logger.warning(
+        _logger.info(
             f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}."
         )
-        _logger.warning(f"\tSerial Number: {self.serial_number}")
-        _logger.warning(f"\tWavelength: {self.wavelength}")
-        _logger.warning(f"\tPower: {self.laser_power}")
+        _logger.info(f"\tSerial Number: {self.serial_number}")
+        _logger.info(f"\tWavelength: {self.wavelength}")
+        _logger.info(f"\tPower: {self.laser_power}")
 
         self._max_power_mw = float(self.laser_power)
         self.level = 0.0
 
+        _logger.warning(f"_get_power_mw is in mw not in ratio")
         self.initialize()
 
     def get_status(self) -> Status:
@@ -445,12 +446,12 @@ class OmicronLaser(
 
     def power_on(self) -> bool:
         response = self._ask(b"POn")[0] == ">"
-        _logger.warning(f"Power on: {response}")
+        _logger.info(f"Power on: {response}")
         return response
 
     def power_off(self) -> bool:
         response = self._ask(b"POf")[0] == ">"
-        _logger.warning(f"Power off: {response}")
+        _logger.info(f"Power off: {response}")
         return response
 
     def laser_off(self) -> bool:
@@ -472,12 +473,11 @@ class OmicronLaser(
 
     def set_level_power(self, value: int) -> bool:
         response = self._set(b"SLP", hex(value)[2:].encode("Latin1"))
-        # self._process_adhoc()
         return response == ">"
 
     def _do_shutdown(self) -> None:
         # Disable laser.
-        _logger.warning("Shuting down...")
+        _logger.info("Shuting down...")
         self.laser_off()
         self.power_off()
         self.connection.flushInput()
@@ -485,15 +485,13 @@ class OmicronLaser(
     #  Initialization to do when cockpit connects.
 
     def initialize(self):
-        _logger.warning("Initializing...")
+        _logger.info("Initializing...")
         self.connection.flushInput()
         self.power_on()
+        self.level = self._get_power_mw()
 
     def _get_power_mw(self) -> float:
         measured = self.measure_diode_power()
-        _logger.warning(
-            f"_get_power_mw {measured} -> {measured / self._max_power_mw }"
-        )
         return measured
 
     # setPower callback
@@ -505,13 +503,13 @@ class OmicronLaser(
     def _do_set_power(self, power: float) -> None:
         level = int(power * 0xFFF)
 
-        _logger.warning(
+        _logger.info(
             f"Setting laser power to {level}, {power} power, {power * self._max_power_mw}."
         )
         self.set_level_power(level)
 
     def _do_get_power(self) -> float:
-        print("_do_get_power")
+        _logger.debug("_do_get_power")
         return self._get_power_mw()
 
     def get_max_power_mw(self) -> float:
@@ -536,6 +534,7 @@ class OmicronLaser(
         self.is_on = not self.laser_off()
         _logger.warning(f"Laser off: {not self.is_on}")
 
+    # Return True if the laser is currently able to produce light.
     def get_is_on(self):
-        _logger.warning(f"is on: {self.is_on}")
+        _logger.info(f"is on: {self.is_on}")
         return self.is_on
