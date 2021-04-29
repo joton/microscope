@@ -77,6 +77,12 @@ class HDMIslm(microscope.abc.Device):
     def _do_shutdown(self) -> None:
         self.app.quit()
 
+    def _do_enable(self):
+        return True
+
+    def _do_disable(self):
+        self.abort()
+
     def set_sim_sequence(self, sequence):
         # sequence is a list of tuples (angle, phase, wavelength)
         # prepare the list of patterns according to the sequence
