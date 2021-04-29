@@ -46,7 +46,7 @@ class HDMIslm(microscope.abc.Device):
         self.patterns_path = path
         self.display_monitor = display_monitor  # the number of the monitor
         self.patterns = dict(enumerate(os.listdir(self.patterns_path)))
-        self.sequence = {}
+        self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
 
         self.initialize()
@@ -135,7 +135,7 @@ class D5020(microscope.abc.Device):
         self.host = host
         self.port = port
         self.ch = ch
-        self.sequence = {}
+        self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
         self.calibration = calibration
         # Initialize the hardware link
