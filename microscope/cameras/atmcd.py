@@ -1461,9 +1461,6 @@ class AndorAtmcd(
             self._set_roi(microscope.ROI(0, 0, 0, 0))
             self._set_binning(microscope.Binning(1, 1))
             # Check info bits to see if initialization successful.
-            info = GetCameraInformation(self._index)
-            if not info & 1 << 2:
-                raise microscope.InitialiseError("... initialization failed.")
             self._caps = GetCapabilities()
             model = GetHeadModel()
             serial = self.get_id()
