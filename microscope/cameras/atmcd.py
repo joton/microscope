@@ -35,6 +35,7 @@ Tested against Ixon Ultra with atmcd64d.dll ver 2.97.30007.0.
 """
 
 import ctypes
+import ctypes.util
 import functools
 import logging
 import os
@@ -88,9 +89,11 @@ if arch == "32bit":
 else:
     _dllName = "atmcd64d"
 if os.name in ("nt", "ce"):
+    _dllName = ctypes.util.find_library(_dllName)
     _dll = ctypes.WinDLL(_dllName)
 else:
     _dll = ctypes.CDLL(_dllName + ".so")
+_logger.info("dll loaded")
 
 # Andor's types
 at_32 = c_long
@@ -1442,6 +1445,7 @@ class AndorAtmcd(
         """Initialize the library and hardware and create Setting objects."""
         _logger.info("Initializing ...")
         num_cams = GetAvailableCameras()
+        _logger.info("%d cameras are available" % num_cams)
         if self._index >= num_cams:
             msg = "Requested camera %d, but only found %d cameras" % (
                 self._index,
