@@ -36,6 +36,7 @@ but should be readily extensible to support other Linkam stages.
 """
 
 import ctypes
+import ctypes.util
 import datetime
 import os
 import os.path
@@ -972,7 +973,8 @@ class _LinkamBase(microscope.abc.FloatingDeviceMixin, microscope.abc.Device):
     def init_sdk():
         """Initialise the SDK and set up event callbacks"""
         try:
-            __class__._lib = ctypes.WinDLL("LinkamSDK.dll")
+            _dllName = ctypes.util.find_library("LinkamSDK.dll")
+            __class__._lib = ctypes.WinDLL(_dllName)
         except:
             # Not tested
             __class__._lib = ctypes.CDLL("libLinkamSDK.so")
