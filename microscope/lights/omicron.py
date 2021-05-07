@@ -34,7 +34,6 @@ def bit_enabled(code: bytes, pos: int) -> bool:
 
 
 class Status:
-
     def __init__(self, bytes) -> None:
         self._bytes = bytes
         print("Bytes: ", self._bytes)
@@ -120,20 +119,26 @@ class Status:
             "toggle_key": {},
             "system_power": {},
             "external_sensorconnectionected": {}
-        }}""".format(self._bytes, self.error, self.on, self.preheating,
-                     self.attention_required, self.enabled_pin, self.key_switch,
-                     self.toggle_key, self.system_power,
-                     self.external_sensorconnectionected)
-
+        }}""".format(
+            self._bytes,
+            self.error,
+            self.on,
+            self.preheating,
+            self.attention_required,
+            self.enabled_pin,
+            self.key_switch,
+            self.toggle_key,
+            self.system_power,
+            self.external_sensorconnectionected,
+        )
 
 
 class LatchedFailure:
-
     def __init__(self, bytes) -> None:
         """
         This bit indicates that the laser system is in internal error state
-        (safety lockout). This bit is signalized in the “Get Actual Status” 
-        value (bit 0), too. 
+        (safety lockout). This bit is signalized in the “Get Actual Status”
+        value (bit 0), too.
         """
         self.error_state = bit_enabled(bytes, 0)
 
@@ -232,12 +237,21 @@ class LatchedFailure:
             "test_error": {},
             "internal_error": {},
             "diode_power": {}
-        }}""".format(self.error_state, self.CDRH,
-                     self.internal_comunication_error, self.k1_relay_error,
-                     self.high_power, self.under_over_voltage,
-                     self.external_interlock, self.diode_current,
-                     self.ambient_temp, self.diode_temp, self.test_error,
-                     self.internal_error, self.diode_power)
+        }}""".format(
+            self.error_state,
+            self.CDRH,
+            self.internal_comunication_error,
+            self.k1_relay_error,
+            self.high_power,
+            self.under_over_voltage,
+            self.external_interlock,
+            self.diode_current,
+            self.ambient_temp,
+            self.diode_temp,
+            self.test_error,
+            self.internal_error,
+            self.diode_power,
+        )
 
 
 class OperationMode:
@@ -268,31 +282,36 @@ class OperationMode:
             "usb_adhoc_mode", {},
             "auto_startup", {},
             "auto_powerup", {}
-        }}""".format(hex(int(self)), bin(int(self)),
-                     self.internal_clock_generator,
-                     self.bias_level_release,
-                     self.operating_level_release,
-                     self.digital_input_release,
-                     self.analog_input_release,
-                     self.APC_mode,
-                     self. digital_input_impedance,
-                     self.analog_input_impedance,
-                     self.usb_adhoc_mode,
-                     self.auto_startup,
-                     self.auto_powerup)
+        }}""".format(
+            hex(int(self)),
+            bin(int(self)),
+            self.internal_clock_generator,
+            self.bias_level_release,
+            self.operating_level_release,
+            self.digital_input_release,
+            self.analog_input_release,
+            self.APC_mode,
+            self.digital_input_impedance,
+            self.analog_input_impedance,
+            self.usb_adhoc_mode,
+            self.auto_startup,
+            self.auto_powerup,
+        )
 
     def __int__(self) -> int:
-        return self.internal_clock_generator << 2 | \
-            self.bias_level_release << 3 | \
-            self.operating_level_release << 4 | \
-            self.digital_input_release << 5 | \
-            self.analog_input_release << 7 | \
-            self.APC_mode << 8 | \
-            self.digital_input_impedance << 10 | \
-            self.analog_input_impedance << 12 | \
-            self.usb_adhoc_mode << 13 | \
-            self.auto_startup << 14 | \
-            self.auto_powerup << 15
+        return (
+            self.internal_clock_generator << 2
+            | self.bias_level_release << 3
+            | self.operating_level_release << 4
+            | self.digital_input_release << 5
+            | self.analog_input_release << 7
+            | self.APC_mode << 8
+            | self.digital_input_impedance << 10
+            | self.analog_input_impedance << 12
+            | self.usb_adhoc_mode << 13
+            | self.auto_startup << 14
+            | self.auto_powerup << 15
+        )
 
     def __bytes__(self) -> bytes:
         return hex(self.__int__())[2:].encode("Latin1")
@@ -327,49 +346,55 @@ class OmicronLaser(
     `TriggerMode.SOFTWARE`.
 
     """
+
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask(self, question: bytes) -> str:
         self.connection.write(b"?" + question + b"|\r")
-        raw = self.connection.read_until(b'\r')
+        raw = self.connection.read_until(b"\r")
         return raw[:-1].decode("Latin1")[4:].split("|")
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask_bytes(self, question: bytes) -> bytes:
         self.connection.write(b"?" + question + b"|\r")
-        return self.connection.read_until(b'\r')[4:-1]
+        return self.connection.read_until(b"\r")[4:-1]
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _set(self, what: bytes, value: bytes) -> str:
         self.connection.write(b"?" + what + value + b"|\r")
-        return self.connection.read_until(b'\r')[:-1].decode("Latin1")[4:].split("|")
+        return (
+            self.connection.read_until(b"\r")[:-1]
+            .decode("Latin1")[4:]
+            .split("|")
+        )
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def reset(self) -> bool:
         self.connection.write(b"?RsC\r")
-        response = self.connection.read_until(b'\r')
+        response = self.connection.read_until(b"\r")
         recv = response == b"!RsC\r"
         logging.info("Reset command received. Laser reponse: {}".format(recv))
 
         if recv:
-            response = self.connection.read_until(b'\r')
-            while response != b'\x00$RsC>\r':
-                response += self.connection.read_until(b'\r')
+            response = self.connection.read_until(b"\r")
+            while response != b"\x00$RsC>\r":
+                response += self.connection.read_until(b"\r")
                 logging.info(
-                    "Reset in course, Laser response: {}".format(response))
+                    "Reset in course, Laser response: {}".format(response)
+                )
             return True
 
         return False
 
     def _process_adhoc(self):
-        raw = self.connection.read_until(b'\r')
-        while raw != b'':
+        raw = self.connection.read_until(b"\r")
+        while raw != b"":
             decoded = raw[:-1].decode("Latin1")
             command = decoded[:4]
             content = decoded[4:].split("|")
             if command.startswith("$TPP"):
                 self.temporal_power = float(content[0])
 
-            raw = self.connection.read_until(b'\r')
+            raw = self.connection.read_until(b"\r")
 
     def get_maximum_power(self):
         return float(self._ask(b"GMP")[0])
@@ -390,19 +415,19 @@ class OmicronLaser(
         specs = self._ask(b"GSI")
         self.wavelength = specs[0]
         self.laser_power = specs[1]
-        
+
         _logger.warning(
-            f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}.")
+            f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}."
+        )
         _logger.warning(f"\tSerial Number: {self.serial_number}")
         _logger.warning(f"\tWavelength: {self.wavelength}")
         _logger.warning(f"\tPower: {self.laser_power}")
 
         self._max_power_mw = float(self.laser_power)
-        self.level = 0.0 
-        
+        self.level = 0.0
+
         self.initialize()
 
-    
     def get_status(self) -> Status:
         code = self._ask_bytes(b"GAS")
         self.status = Status(code)
@@ -417,46 +442,39 @@ class OmicronLaser(
         code = self._ask_bytes(b"GOM")
         self.operation_mode = OperationMode(code)
         return self.operation_mode
-    
+
     def power_on(self) -> bool:
         response = self._ask(b"POn")[0] == ">"
         _logger.warning(f"Power on: {response}")
         return response
 
-    
     def power_off(self) -> bool:
         response = self._ask(b"POf")[0] == ">"
         _logger.warning(f"Power off: {response}")
         return response
 
-    
     def laser_off(self) -> bool:
         response = self._ask(b"LOf")[0] == ">"
         _logger.warning(f"Laser off: {response}")
         return response
-
 
     def laser_on(self) -> bool:
         response = self._ask(b"LOn")[0] == ">"
         _logger.warning(f"Laser on: {response}")
         return response
 
-    
     def measure_diode_power(self) -> float:
         return float(self._ask(b"MDP")[0])
 
-    
     def get_level_power(self):
         response = self._ask(b"GLP")[0]
         return int(response, 16)
 
-    
     def set_level_power(self, value: int) -> bool:
         response = self._set(b"SLP", hex(value)[2:].encode("Latin1"))
         # self._process_adhoc()
         return response == ">"
 
-    
     def _do_shutdown(self) -> None:
         # Disable laser.
         _logger.warning("Shuting down...")
@@ -465,32 +483,32 @@ class OmicronLaser(
         self.connection.flushInput()
 
     #  Initialization to do when cockpit connects.
-    
+
     def initialize(self):
         _logger.warning("Initializing...")
         self.connection.flushInput()
         self.power_on()
-        
 
     def _get_power_mw(self) -> float:
         measured = self.measure_diode_power()
-        _logger.warning(f"_get_power_mw {measured} -> {measured / self._max_power_mw }")
+        _logger.warning(
+            f"_get_power_mw {measured} -> {measured / self._max_power_mw }"
+        )
         return measured
-
 
     # setPower callback
     def _set_power_mw(self, mW: float) -> None:
-        self.level = int(mW/self._max_power_mw * 0xFFF)
+        self.level = int(mW / self._max_power_mw * 0xFFF)
         _logger.info(f"Setting laser power to {self.level}, {mW} mW.")
         self.set_level_power(self.level)
-
 
     def _do_set_power(self, power: float) -> None:
         level = int(power * 0xFFF)
 
-        _logger.warning(f"Setting laser power to {level}, {power} power, {power * self._max_power_mw}.")        
+        _logger.warning(
+            f"Setting laser power to {level}, {power} power, {power * self._max_power_mw}."
+        )
         self.set_level_power(level)
-
 
     def _do_get_power(self) -> float:
         print("_do_get_power")
@@ -517,8 +535,6 @@ class OmicronLaser(
     def _do_disable(self):
         self.is_on = not self.laser_off()
         _logger.warning(f"Laser off: {not self.is_on}")
-
-
 
     def get_is_on(self):
         _logger.warning(f"is on: {self.is_on}")
