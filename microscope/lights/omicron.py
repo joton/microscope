@@ -36,7 +36,6 @@ def bit_enabled(code: bytes, pos: int) -> bool:
 class Status:
     def __init__(self, bytes) -> None:
         self._bytes = bytes
-        print("Bytes: ", self._bytes)
         """
         This bit indicates whetherany preceded or pending error prevents the 
         devicefrom starting into normal operation. Only if this bit is unset 
@@ -402,7 +401,7 @@ class OmicronLaser(
         super().__init__(**kwargs)
         self.connection = serial.serial_for_url("COM4", baudrate=baud)
         self.connection.read_all()
-        self.is_on = False
+        self._do_disable()
 
         firmware = self._ask(b"GFw")
         self.model_code = firmware[0]
@@ -411,21 +410,17 @@ class OmicronLaser(
 
         self.serial_number = self._ask(b"GSN")[0]
 
-        specs = self._ask(b"GSI")
-        self.wavelength = specs[0]
-        self.laser_power = specs[1]
+        self.specs = self._ask(b"GSI")
+        self.wavelength = float(self.specs[0])
+        self._max_power_mw = self.get_maximum_power()
 
         _logger.info(
             f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}."
         )
         _logger.info(f"\tSerial Number: {self.serial_number}")
         _logger.info(f"\tWavelength: {self.wavelength}")
-        _logger.info(f"\tPower: {self.laser_power}")
+        _logger.info(f"\tPower: {self._max_power_mw}")
 
-        self._max_power_mw = float(self.laser_power)
-        self.level = 0.0
-
-        _logger.warning(f"_get_power_mw is in mw not in ratio")
         self.initialize()
 
     def _query(self, q: bytes) -> bytes:
@@ -485,14 +480,19 @@ class OmicronLaser(
         return response
 
     def measure_diode_power(self) -> float:
-        return float(self._ask(b"MDP")[0])
+        response = self._ask(b"MDP")[0]
+        self._laser_power = float(response)
+        return self._laser_power
 
     def get_level_power(self):
         response = self._ask(b"GLP")[0]
         return int(response, 16)
 
-    def set_level_power(self, value: int) -> bool:
-        response = self._set(b"SLP", hex(value)[2:].encode("Latin1"))
+    def set_level_power(self, power: float) -> bool:
+        if power > 1.0:
+            _logger.error("Set power level must be [0-1] but is %5.2f" % power)
+        level = int(power * 0xFFF)
+        response = self._set(b"SLP", hex(level)[2:].encode("Latin1"))
         return response == ">"
 
     def _do_shutdown(self) -> None:
@@ -507,36 +507,21 @@ class OmicronLaser(
     def initialize(self):
         _logger.info("Initializing...")
         self.connection.flushInput()
-        self.power_on()
-        self.level = self._get_power_mw()
+        self.measure_diode_power()
 
-    def _get_power_mw(self) -> float:
-        measured = self.measure_diode_power()
-        return measured
 
-    # setPower callback
-    def _set_power_mw(self, mW: float) -> None:
-        self.level = int(mW / self._max_power_mw * 0xFFF)
-        _logger.info(f"Setting laser power to {self.level}, {mW} mW.")
-        self.set_level_power(self.level)
+
 
     def _do_set_power(self, power: float) -> None:
-        level = int(power * 0xFFF)
-
+        self._set_point = power
         _logger.info(
-            f"Setting laser power to {level}, {power} power, {power * self._max_power_mw}."
+            f"Setting laser power to {power*100}%"
         )
-        self.set_level_power(level)
+        if self.is_on:
+            self.set_level_power(power)
 
     def _do_get_power(self) -> float:
-        _logger.debug("_do_get_power")
-        return self._get_power_mw()
-
-    def get_max_power_mw(self) -> float:
-        return self._max_power_mw
-
-    def get_set_power_mw(self) -> float:
-        return (self.level / 0xFFF) * self._max_power_mw
+        return self.measure_diode_power() / self._max_power_mw
 
     # Turn the laser ON. Return True if we succeeded, False otherwise.
     def _do_enable(self):
