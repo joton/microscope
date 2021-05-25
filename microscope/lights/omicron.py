@@ -349,28 +349,21 @@ class OmicronLaser(
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask(self, question: bytes) -> str:
-        self.connection.write(b"?" + question + b"|\r")
-        raw = self.connection.read_until(b"\r")
+        raw = self._query(question + b"|")
         return raw[:-1].decode("Latin1")[4:].split("|")
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _ask_bytes(self, question: bytes) -> bytes:
-        self.connection.write(b"?" + question + b"|\r")
-        return self.connection.read_until(b"\r")[4:-1]
+        raw = self._query(question + b"|")
+        return raw[4:-1]
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def _set(self, what: bytes, value: bytes) -> str:
-        self.connection.write(b"?" + what + value + b"|\r")
-        return (
-            self.connection.read_until(b"\r")[:-1]
-            .decode("Latin1")[4:]
-            .split("|")
-        )
+        return self._ask(what + value)
 
     @microscope.abc.SerialDeviceMixin.lock_comms
     def reset(self) -> bool:
-        self.connection.write(b"?RsC\r")
-        response = self.connection.read_until(b"\r")
+        response = self._query(b"RsC")
         recv = response == b"!RsC\r"
         logging.info("Reset command received. Laser reponse: {}".format(recv))
 
@@ -385,16 +378,22 @@ class OmicronLaser(
 
         return False
 
-    def _process_adhoc(self):
-        raw = self.connection.read_until(b"\r")
-        while raw != b"":
-            decoded = raw[:-1].decode("Latin1")
-            command = decoded[:4]
-            content = decoded[4:].split("|")
-            if command.startswith("$TPP"):
-                self.temporal_power = float(content[0])
-
-            raw = self.connection.read_until(b"\r")
+    def _process_adhoc(self, raw):
+        # CMD: GWH, MDP, MTD, MTA, MTB, GAS, GFB, GLP, GPP,
+        #      TPP, GOM, COM, GPF, LPF, GDC, RsC, CLD,
+        decoded = raw[:-1].decode("Latin1")
+        command = decoded[:4]
+        content = decoded[4:].split("|")
+        if command == '$GAS':
+            self.status = Status(content[0])
+        elif command == '$GOM':
+            self.operation_mode = OperationMode(content[0])
+        elif command == '$TPP':
+            self.temporal_power = float(content[0])
+        elif command == '$MDP':
+            self._laser_power = float(content[0])
+        else:
+            _logger.debug("AdHoc meesage: %s" % raw)
 
     def get_maximum_power(self):
         return float(self._ask(b"GMP")[0])
@@ -428,6 +427,27 @@ class OmicronLaser(
 
         _logger.warning(f"_get_power_mw is in mw not in ratio")
         self.initialize()
+
+    def _query(self, q: bytes) -> bytes:
+        self.connection.write(b"?" + q + b"\r")
+        raw = self._read()
+        if raw.decode()[1:4] == q.decode()[:3]:
+            #_logger.debug("%s: %s" % (q, raw))
+            pass
+        else:
+            _logger.warning("Unexpected answer to %s: %s" % (q, raw))
+            raw = self._query(q)
+        return raw
+
+    def _read(self) -> bytes:
+        """
+        This method reads the connection and manage ad_hoc messages
+        """
+        raw = self.connection.read_until(b"\r")
+        if raw.decode()[0] == '$': # Ad-hoc message
+            self._process_adhoc(raw)
+            raw = self._read()
+        return raw
 
     def get_status(self) -> Status:
         code = self._ask_bytes(b"GAS")
