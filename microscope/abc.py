@@ -42,9 +42,6 @@ import microscope
 _logger = logging.getLogger(__name__)
 
 
-# Trigger types.
-(TRIGGER_AFTER, TRIGGER_BEFORE, TRIGGER_DURATION, TRIGGER_SOFT) = range(4)
-
 # Mapping of setting data types descriptors to allowed-value types.
 #
 # We use a descriptor for the type instead of the actual type because
@@ -192,12 +189,31 @@ class FloatingDeviceMixin(metaclass=abc.ABCMeta):
     """A mixin for devices that 'float'.
 
     Some SDKs handling multiple devices do not allow for explicit
-    selection of a specific device.  Instead, a device must be
-    initialized and then queried to determine its ID. This class is a
-    mixin which identifies a subclass as floating, and enforces the
-    implementation of a `get_id` method.
+    selection of a specific device.  Instead, when the SDK is
+    initialised it assigns an index to each device.  However, this
+    index is only unique until the program ends and next time the
+    program runs the device might be assigned a different index.  This
+    means that it is not possible to request a specific device to the
+    SDK.  Instead, one connects to one of the available devices, then
+    initialises it, and only then can one check which one we got.
+
+    Floating devices are a problem in systems where there are multiple
+    devices of the same type but we only want to initialise a subset
+    of them.  Make sure that a device really is a floating device
+    before making use of this class.  Avoid it if possible.
+
+    This class is a mixin which enforces the implementation of a
+    `get_id` method, which typically returns the device serial number.
+
+    Args:
+        index: the index of the device on a shared library.  This
+            argument is added by the device_server program.
 
     """
+
+    def __init__(self, index: int, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._index = index
 
     @abc.abstractmethod
     def get_id(self) -> str:
@@ -268,18 +284,11 @@ class TriggerTargetMixin(metaclass=abc.ABCMeta):
 
 
 class Device(metaclass=abc.ABCMeta):
-    """A base device class. All devices should subclass this class.
+    """A base device class. All devices should subclass this class."""
 
-    Args:
-        index: the index of the device on a shared library.  This
-            argument is added by the deviceserver.
-
-    """
-
-    def __init__(self, index: typing.Optional[int] = None) -> None:
+    def __init__(self) -> None:
         self.enabled = False
         self._settings: typing.Dict[str, _Setting] = {}
-        self._index = index
 
     def __del__(self) -> None:
         self.shutdown()
@@ -980,16 +989,6 @@ class Camera(TriggerTargetMixin, DataDevice):
         else:
             roi = microscope.ROI(left, top, width, height)
         return self._set_roi(roi)
-
-    def get_trigger_type(self):
-        """Return the current trigger mode.
-
-        One of
-            TRIGGER_AFTER,
-            TRIGGER_BEFORE or
-            TRIGGER_DURATION (bulb exposure.)
-        """
-        pass
 
 
 class SerialDeviceMixin(metaclass=abc.ABCMeta):

@@ -63,7 +63,7 @@ class _ImageGenerator:
             self.white,
         )
         self._method_index = 0
-        self._datatypes = (np.uint8, np.uint16, np.float)
+        self._datatypes = (np.uint8, np.uint16, float)
         self._datatype_index = 0
         self._theta = _theta_generator()
         self.numbering = True
@@ -279,10 +279,6 @@ class SimulatedCamera(
 
     def _get_sensor_shape(self):
         return (512, 512)
-
-    def get_trigger_type(self):
-        # deprecated, use trigger_type and trigger_mode properties
-        return microscope.abc.TRIGGER_SOFT
 
     def soft_trigger(self):
         # deprecated, use self.trigger()
