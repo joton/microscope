@@ -29,6 +29,7 @@ import os
 import socket
 import threading
 import numpy as np
+import Pyro4
 
 from PyQt5.QtWidgets import QApplication, QDesktopWidget, QLabel, QMainWindow
 from PyQt5.QtGui import QImage, QPixmap
@@ -36,18 +37,19 @@ from PyQt5.QtGui import QImage, QPixmap
 _logger = logging.getLogger(__name__)
 
 
-class HDMIslm(microscope.abc.Device):
+class HDMIslm(microscope.abc.Modulator):
 
     # TODO: understand who is passing index on construction.
-    def __init__(self, display_monitor=1, path="patterns", index=0):
-        super().__init__()
+    def __init__(self, width=None, heigh=None, display_monitor=1, **kwargs):
+        super().__init__(**kwargs)
 
         # setup the class
-        self.patterns_path = path
         self.display_monitor = display_monitor  # the number of the monitor
-        self.patterns = dict(enumerate(os.listdir(self.patterns_path)))
-        self.sequence = dict(enumerate([(0, 0, 1)]))
-        self.idx_image = 0
+        self.Nx = width
+        self.Ny = heigh
+
+        self.patterns = {}
+        self.app = None
 
         self.initialize()
 
@@ -59,9 +61,9 @@ class HDMIslm(microscope.abc.Device):
         self.label = QLabel()
 
         widget = QMainWindow()  # define your widget
-
-        image = QImage(f"{self.patterns_path}/{self.patterns[0]}")
-        self.label.setPixmap(QPixmap.fromImage(image))
+        zero = np.zeros((self.Ny, self.Nx))
+        image = QImage(zero, self.Ny, self.Nx, QImage.Format_Grayscale8)
+        self.label.setPixmap(QPixmap(image))
 
         widget.setCentralWidget(self.label)
         monitor = QDesktopWidget().screenGeometry(self.display_monitor)
@@ -75,58 +77,71 @@ class HDMIslm(microscope.abc.Device):
         threading.Thread(target=self._run_qt).start()
 
     def _do_shutdown(self) -> None:
-        self.app.quit()
+        if self.app is not None:
+            self.app.quit()
 
-    def _do_enable(self):
-        return True
-
-    def _do_disable(self):
-        self.abort()
-
-    def set_sim_sequence(self, sequence):
+    def set_sequence(self, sequence):
         # sequence is a list of tuples (angle, phase, wavelength)
         # prepare the list of patterns according to the sequence
         self.patterns = {}
         self.sequence = dict(enumerate(sequence))
+        print("sequence %s" % str(self.sequence))
         for i, (angle, phase, wavelength) in enumerate(sequence):
-            file_name = f"angle{angle}_phase{phase}_nm{wavelength}.jpg"
-            patt = os.path.join(self.patterns_path, file_name)
-            if not os.path.exists(patt):
-                raise FileNotFoundError
-            self.patterns[i] = patt
+            pattern = self.gen_pattern(angle, phase, wavelength)
+            image = QImage(pattern, self.Ny, self.Nx, QImage.Format_Grayscale8)
+            self.patterns[i] = image
 
-    def getCurrentPosition(self):
-        # get current possition in the serie
-        return self.idx_image
-
-    def _update_pattern(self):
+    def _update(self):
         path = self.patterns[self.idx_image]
-        print(f"Loading pattern: {path}")
-        self.label.setPixmap(QPixmap.fromImage(QImage(path)))
+        print(f"Loading pattern {self.idx_image}")
+        self.label.setPixmap(QPixmap(QImage(self.patterns[self.idx_image])))
 
-    def cycleToPosition(self, target_position):
-        # go to the given position in the serie
-        self.idx_image = target_position
-        self._update_pattern()
+    # Phase functions:
+    def linearGrating(self, period, theta_deg, phi_deg):
+        # period in pixels
+        k = 1 / period
+        kx = k * np.cos(np.deg2rad(theta_deg))
+        ky = k * np.sin(np.deg2rad(theta_deg))
+        x = np.arange(1920)
+        y = np.arange(1200)
+        x_mesh, y_mesh = np.meshgrid(x, y)
+        # phase in waves (phase in rads / 2pi)
+        phase = kx * x_mesh + ky * y_mesh + np.deg2rad(phi_deg)
+        return np.mod(phase, 1)
 
-    def get_sim_diffraction_angle(self) -> float:
-        # get angle at current position
-        return self.sequence[self.idx_image][0]
+    def fresnelLens(self, focal, xcenter, ycenter, wavelength):
+        # Convergent lens: focal > 0
+        # Divergent lens: focal < 0
+        # xcenter and ycenter in pixels
+        # wavelength in meters
+        pixelsize = 8e-6
+        Nx, Ny = 1920, 1200
+        x = np.arange(Nx) - xcenter
+        y = np.arange(Ny) - ycenter
+        x_mesh, y_mesh = np.meshgrid(x, y, indexing="xy")
+        # phase in waves (phase in rads / 2pi)
+        phase = (
+            0.5 * (x_mesh ** 2 + y_mesh ** 2) * pixelsize ** 2 / (wavelength * focal)
+        )
+        return np.mod(phase, 1)
 
-    def set_sim_diffraction_angle(self, theta):
-        # TODO: Remove for!
-        current_phase = self.sequence[self.idx_image][1]
-        current_wavelength = self.sequence[self.idx_image][2]
-        for i, (angle, phase, wavelength) in self.sequence.items():
-            if (
-                theta == angle
-                and phase == current_phase
-                and wavelength == current_wavelength
-            ):
-                self.idx_image = i
-                self._update_pattern()
-                return
-        raise RuntimeError(f"No sequence found for angle {theta}")
+    # Operators:
+    def binarize(self, A, value1, value2):
+        threshold = 0.5
+        binarized_array = A
+        binarized_array[binarized_array < threshold] = value1
+        binarized_array[binarized_array >= threshold] = value2
+        return binarized_array
+
+    def gen_pattern(self, angle, phase, wavelength):
+        grating = self.binarize(self.linearGrating(10, angle, phase), 0, 0.5)
+        fresnel = self.fresnelLens(0.5, self.Ny / 2, self.Nx / 2, wavelength)
+
+        total = np.mod(grating + fresnel, 1)
+        m, M = 0, 1
+        max_, min_ = 255, 0
+        normalized = (max_ - min_) / (M - m) * (total - m) + min_
+        return normalized
 
 
 class D5020(microscope.abc.Device):
@@ -144,11 +159,6 @@ class D5020(microscope.abc.Device):
         self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
         self.calibration = calibration
-        self.parameter = [ # angle, phase, wavelength
-            self.set_angle,
-            lambda *args: None,
-            lambda *args: None,
-        ]
         # Initialize the hardware link
         self.initialize()
 
@@ -198,29 +208,35 @@ class D5020(microscope.abc.Device):
         self.parameter[ipar](value)
 
     def get_sim_diffraction_angle(self) -> float:
-        return self.get_parameter[0]
+        return self.get_parameter(0)
 
     def set_sim_diffraction_angle(self, theta):
-        self.set_parameter[0](theta)
+        self.set_parameter(0, theta)
+
 
 def main():
-    hdmi = HDMIslm(display_monitor=2)
+    import os
 
-    print(f"Trigger mode: {hdmi.trigger_mode}")
-    print(f"Trigger type: {hdmi.trigger_type}")
+    os.environ["QT_QPA_PLATFORM"] = "minimal"
 
-    sequence = [(10, 100, 1000), (20, 200, 2000), (30, 300, 3000)]
+    sequence = [(0, 60, 488e-9), (60, 0, 488e-9), (90, 0, 488e-9)]
+    hdmi = HDMIslm(100, 200, display_monitor=2)
+    hdmi.set_sequence(sequence)
 
-    hdmi.set_sim_sequence(sequence)
+    print(f"Get current position: {hdmi.position}")
 
-    print(f"Get current position: {hdmi.getCurrentPosition()}")
+    hdmi.position = 1
+    print(f"Get current position: {hdmi.position}")
+    print(f"Get diffraction angle: {hdmi.angle}")
 
-    hdmi.cycleToPosition(1)
-    print(f"Get current position: {hdmi.getCurrentPosition()}")
+    hdmi.angle = 90
+    print(f"Get diffraction position: {hdmi.position}")
+    print(f"Get diffraction angle: {hdmi.angle}")
 
-    print(f"Get SIM diffraction angle: {hdmi.get_sim_diffraction_angle()}")
-    hdmi.set_sim_diffraction_angle(30)
-    print(f"Get SIM diffraction angle: {hdmi.get_sim_diffraction_angle()}")
+    hdmi.position = 0
+    print(f"Get diffraction angle: {hdmi.angle}")
+
+    hdmi.shutdown()
 
 
 if __name__ == "__main__":
