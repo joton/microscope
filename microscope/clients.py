@@ -63,8 +63,26 @@ class Client:
         ]
         properties = set(self._proxy._pyroAttrs).difference(my_properties)
 
-        for attr in itertools.chain(methods, properties):
+        for attr in methods:
             setattr(self, attr, getattr(self._proxy, attr))
+
+        def att_get(att):
+            return lambda obj: getattr(obj._proxy, att)
+
+        def att_set(att):
+            return lambda obj, value: obj._proxy.__setattr__(att, value)
+
+        def att_del(att):
+            return lambda obj: obj._proxy.__delattr__(att)
+
+        for attr in properties:
+            setattr(
+                self.__class__,
+                attr,
+                property(
+                    att_get(attr), att_set(attr), att_del(attr), f"{attr} property"
+                ),
+            )
 
 
 class DataClient(Client):
