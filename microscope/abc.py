@@ -1553,3 +1553,99 @@ class Stage(Device, metaclass=abc.ABCMeta):
 
         """
         raise NotImplementedError()
+
+
+class Modulator(Device, metaclass=abc.ABCMeta):
+    """Base class for Light Modulators.
+
+    Each modulator pattern is bassed on three parameters:
+    angle, phase, wavelength.
+
+    One can either set a sequence of patterns as a list of tuples
+    and loop over it or to set any of these parameters.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.sequence = dict(enumerate([(0, 0, 1)]))
+        self.idx_image = 0
+
+    def set_sequence(self, sequence):
+        self.sequence = dict(enumerate(sequence))
+
+    @property
+    def position(self) -> float:
+        """
+        Get current possition in the sequence
+        """
+        _logger.debug(f"Position {self.idx_image}")
+        return self.idx_image
+
+    @position.setter
+    def position(self, position: float) -> None:
+        """
+        Go to the given position in the sequence
+        """
+        _logger.debug(f"Set Position {position}")
+        self.idx_image = int(position)
+        self._update()
+
+    @property
+    def angle(self) -> float:
+        angle = self.get_parameter(0)
+        _logger.debug(f"Angle {angle}")
+        return angle
+
+    @angle.setter
+    def angle(self, angle: float) -> None:
+        _logger.debug(f"Set Angle {angle}")
+        self.set_parameter(0, angle)
+
+    @property
+    def phase(self):
+        phase = self.get_parameter(1)
+        _logger.debug(f"Phase {phase}")
+        return phase
+
+    @phase.setter
+    def phase(self, phase):
+        _logger.debug(f"Set Phase {phase}")
+        self.set_parameter(1, phase)
+
+    @property
+    def wavelength(self):
+        wavelength = self.get_parameter(2)
+        _logger.debug(f"Wavelength {wavelength}")
+        return wavelength
+
+    @wavelength.setter
+    def wavelength(self, wavelength):
+        _logger.debug(f"Set Wavelength {wavelength}")
+        self.set_parameter(2, wavelength)
+
+    def get_parameter(self, ipar):
+        return self.sequence[self.idx_image][ipar]
+
+    def set_parameter(self, ipar, value):
+        par = list(self.sequence[self.idx_image])
+        par[ipar] = value
+        for i, step in self.sequence.items():
+            if list(step) == par:
+                self.idx_image = i
+                self._update()
+                return
+        raise RuntimeError(f"State not found")
+
+    @abc.abstractmethod
+    def _update(self):
+        raise NotImplementedError()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        n = self.idx_image
+        n += 1
+        if n >= len(self.sequence):
+            n = 0
+        self.idx_image = n
