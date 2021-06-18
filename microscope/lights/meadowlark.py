@@ -76,6 +76,12 @@ class HDMIslm(microscope.abc.Modulator):
         # TODO: Test if thread is necessary and works.
         self.app.exec_()
 
+    def set_fullscreen(self, full=True):
+        if full:
+            self.widget.showFullScreen()
+        else:
+            self.widget.showNormal()
+
     def initialize(self):
         threading.Thread(target=self._run_qt).start()
 
