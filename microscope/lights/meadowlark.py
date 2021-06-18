@@ -51,6 +51,7 @@ class HDMIslm(microscope.abc.Modulator):
         self.patterns = {}
         self.app = None
 
+        self.set_sequence([(0, 60, 488e-9)])
         self.initialize()
 
     def _run_qt(self):
