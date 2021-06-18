@@ -47,6 +47,8 @@ class HDMIslm(microscope.abc.Modulator):
         self.display_monitor = display_monitor  # the number of the monitor
         self.Nx = width
         self.Ny = heigh
+        self.label = None
+        self.widget = None
 
         self.patterns = {}
         self.app = None
@@ -61,15 +63,15 @@ class HDMIslm(microscope.abc.Modulator):
         self.app = QApplication([])
         self.label = QLabel()
 
-        widget = QMainWindow()  # define your widget
-        zero = np.zeros((self.Ny, self.Nx))
-        image = QImage(zero, self.Ny, self.Nx, QImage.Format_Grayscale8)
+        self.widget = QMainWindow()  # define your widget
+        zero = np.zeros((self.Nx, self.Ny))
+        image = QImage(zero, self.Nx, self.Ny, QImage.Format_Grayscale8)
         self.label.setPixmap(QPixmap(image))
 
-        widget.setCentralWidget(self.label)
+        self.widget.setCentralWidget(self.label)
         monitor = QDesktopWidget().screenGeometry(self.display_monitor)
-        widget.move(monitor.left(), monitor.top())
-        widget.showFullScreen()
+        self.widget.move(monitor.left(), monitor.top())
+        self.widget.showFullScreen()
 
         # TODO: Test if thread is necessary and works.
         self.app.exec_()
@@ -88,14 +90,13 @@ class HDMIslm(microscope.abc.Modulator):
         self.sequence = dict(enumerate(sequence))
         print("sequence %s" % str(self.sequence))
         for i, (angle, phase, wavelength) in enumerate(sequence):
-            pattern = self.gen_pattern(angle, phase, wavelength)
-            image = QImage(pattern, self.Ny, self.Nx, QImage.Format_Grayscale8)
-            self.patterns[i] = image
+            self.patterns[i] = self.gen_pattern(angle, phase, wavelength)
 
     def _update(self):
-        path = self.patterns[self.idx_image]
-        print(f"Loading pattern {self.idx_image}")
-        self.label.setPixmap(QPixmap(QImage(self.patterns[self.idx_image])))
+        _logger.debug(f"Loading pattern {self.idx_image}")
+        pattern = self.patterns[self.idx_image]
+        image = QImage(pattern, self.Nx, self.Ny, QImage.Format_Grayscale8)
+        self.label.setPixmap(QPixmap(image))
 
     # Phase functions:
     def linearGrating(self, period, theta_deg, phi_deg):
@@ -103,8 +104,8 @@ class HDMIslm(microscope.abc.Modulator):
         k = 1 / period
         kx = k * np.cos(np.deg2rad(theta_deg))
         ky = k * np.sin(np.deg2rad(theta_deg))
-        x = np.arange(1920)
-        y = np.arange(1200)
+        x = np.arange(self.Nx)
+        y = np.arange(self.Ny)
         x_mesh, y_mesh = np.meshgrid(x, y)
         # phase in waves (phase in rads / 2pi)
         phase = kx * x_mesh + ky * y_mesh + np.deg2rad(phi_deg)
@@ -116,9 +117,8 @@ class HDMIslm(microscope.abc.Modulator):
         # xcenter and ycenter in pixels
         # wavelength in meters
         pixelsize = 8e-6
-        Nx, Ny = 1920, 1200
-        x = np.arange(Nx) - xcenter
-        y = np.arange(Ny) - ycenter
+        x = np.arange(self.Nx) - xcenter
+        y = np.arange(self.Ny) - ycenter
         x_mesh, y_mesh = np.meshgrid(x, y, indexing="xy")
         # phase in waves (phase in rads / 2pi)
         phase = (
@@ -136,13 +136,13 @@ class HDMIslm(microscope.abc.Modulator):
 
     def gen_pattern(self, angle, phase, wavelength):
         grating = self.binarize(self.linearGrating(10, angle, phase), 0, 0.5)
-        fresnel = self.fresnelLens(0.5, self.Ny / 2, self.Nx / 2, wavelength)
+        fresnel = self.fresnelLens(0.5, self.Nx / 2, self.Ny / 2, wavelength)
 
         total = np.mod(grating + fresnel, 1)
         m, M = 0, 1
         max_, min_ = 255, 0
         normalized = (max_ - min_) / (M - m) * (total - m) + min_
-        return normalized
+        return normalized.astype(np.uint8)
 
 
 class D5020(microscope.abc.Device):
