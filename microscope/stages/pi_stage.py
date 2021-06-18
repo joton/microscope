@@ -158,7 +158,7 @@ class PIstage(microscope.abc.Stage):
     def _axis_get(self, cmd, axis):
         cmd = cmd + " {}".format(int(axis))
         ans = self._ask_cmd(cmd)
-        return float(ans.split("=")[1].strip())
+        return float(ans.split("=")[1].split("\n")[0].strip())
 
     def _axis_set(self, cmd, axis, val):
         cmd = cmd + " {} {}".format(int(axis), val)
