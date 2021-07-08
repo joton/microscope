@@ -157,14 +157,26 @@ class D5020(microscope.abc.Modulator):
 
     # TODO: understand who is passing index on construction.
 
-    def __init__(self, host=None, port=None, calibration=None, ch=1, index=0):
-        super().__init__()
+    def __init__(
+        self,
+        host=None,
+        port=None,
+        calibration=None,
+        minmax=None,
+        coef=None,
+        ch=1,
+        index=0,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
 
         self.host = host
         self.port = port
         self.ch = ch
         self.idx_image = 0
         self.calibration = calibration
+        self.coef = np.array(coef)  # coeficients for np.poli1d
+        self.minmax = minmax
 
         self.set_sequence([(0, 60, 488e-9)])
         # Initialize the hardware link
@@ -200,7 +212,8 @@ class D5020(microscope.abc.Modulator):
         return max(0, min(v, 10000))
 
     def set_angle(self, theta: float):
-        v = np.interp(theta, self.calibration[0], self.calibration[1])
+        v = self.calc_voltage(theta)
+        print("Voltage %0.3f for angle %0.0f" % (v, theta))
         self.set_voltage(v)
 
     def set_voltage(self, voltage: int):
@@ -209,6 +222,24 @@ class D5020(microscope.abc.Modulator):
         self._socket.send(cmd.encode() + b"\n")
         ans = self._socket.recv(1024)
 
+    def calc_voltage(self, theta: float):
+        theta %= 360
+        if theta < self.minmax[0]:
+            theta += 180
+        if theta > self.minmax[1]:
+            theta -= 180
+        if self.coef is not None:
+            angle = np.array([0] * len(self.coef))
+            angle[-1] = theta
+            p = np.poly1d(self.coef - angle)
+            raiz = np.roots(p)
+            raiz = raiz[np.isreal(raiz)]
+            raiz = np.real(raiz)
+            raiz = raiz[raiz > 1]
+            v = float(raiz)
+        else:
+            v = np.interp(theta, self.calibration[0], self.calibration[1])
+        return v
 
 
 def main():
