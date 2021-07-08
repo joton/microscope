@@ -151,7 +151,7 @@ class HDMIslm(microscope.abc.Modulator):
         return normalized.astype(np.uint8)
 
 
-class D5020(microscope.abc.Device):
+class D5020(microscope.abc.Modulator):
 
     _socket = None
 
@@ -163,9 +163,10 @@ class D5020(microscope.abc.Device):
         self.host = host
         self.port = port
         self.ch = ch
-        self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
         self.calibration = calibration
+
+        self.set_sequence([(0, 60, 488e-9)])
         # Initialize the hardware link
         self.initialize()
 
@@ -185,6 +186,16 @@ class D5020(microscope.abc.Device):
         if self._socket is not None:
             self._socket.close()
 
+    def set_sequence(self, sequence):
+        # sequence is a list of tuples (angle, phase, wavelength)
+        self.sequence = dict(enumerate(sequence))
+        print("sequence %s" % str(self.sequence))
+
+    def _update(self):
+        angle = self.sequence[self.idx_image][0]
+        _logger.debug(f"Set angle {angle}[{self.idx_image}]")
+        self.set_angle(angle)
+
     def _vcheck(self, v):  # voltage check
         return max(0, min(v, 10000))
 
@@ -198,27 +209,6 @@ class D5020(microscope.abc.Device):
         self._socket.send(cmd.encode() + b"\n")
         ans = self._socket.recv(1024)
 
-    def set_sim_sequence(self, sequence):
-        self.sequence = dict(enumerate(sequence))
-
-    def getCurrentPosition(self):
-        return self.idx_image
-
-    def cycleToPosition(self, target_position):
-        self.idx_image = target_position
-        self.set_sim_diffraction_angle(target_position)
-
-    def get_parameter(self, ipar):
-        return self.sequence[self.idx_image][ipar]
-
-    def set_parameter(self, ipar, value):
-        self.parameter[ipar](value)
-
-    def get_sim_diffraction_angle(self) -> float:
-        return self.get_parameter(0)
-
-    def set_sim_diffraction_angle(self, theta):
-        self.set_parameter(0, theta)
 
 
 def main():
