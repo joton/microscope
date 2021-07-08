@@ -217,9 +217,10 @@ class D5020(microscope.abc.Modulator):
         self.set_voltage(v)
 
     def set_voltage(self, voltage: int):
-        voltage = int(self._vcheck(voltage))
-        cmd = f"inv:{self.ch},{voltage}"
-        self._socket.send(cmd.encode() + b"\n")
+        """Set voltage in mV"""
+        voltage = int(self._vcheck(voltage * 1000))
+        cmd = f"inv:{self.ch},{voltage}\n"
+        self._socket.send(cmd.encode())
         ans = self._socket.recv(1024)
 
     def calc_voltage(self, theta: float):
