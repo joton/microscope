@@ -136,8 +136,8 @@ class LatchedFailure:
     def __init__(self, bytes) -> None:
         """
         This bit indicates that the laser system is in internal error state
-        (safety lockout). This bit is signalized in the “Get Actual Status” 
-        value (bit 0), too. 
+        (safety lockout). This bit is signalized in the “Get Actual Status”
+        value (bit 0), too.
         """
         self.error_state = bit_enabled(bytes, 0)
 
@@ -370,9 +370,7 @@ class OmicronLaser(
             response = self.connection.read_until(b"\r")
             while response != b"\x00$RsC>\r":
                 response += self.connection.read_until(b"\r")
-                logging.info(
-                    "Reset in course, Laser response: {}".format(response)
-                )
+                logging.info("Reset in course, Laser response: {}".format(response))
             return True
 
         return False
@@ -383,13 +381,13 @@ class OmicronLaser(
         decoded = raw[:-1].decode("Latin1")
         command = decoded[:4]
         content = decoded[4:].split("|")
-        if command == '$GAS':
+        if command == "$GAS":
             self.status = Status(content[0])
-        elif command == '$GOM':
+        elif command == "$GOM":
             self.operation_mode = OperationMode(content[0])
-        elif command == '$TPP':
+        elif command == "$TPP":
             self.temporal_power = float(content[0])
-        elif command == '$MDP':
+        elif command == "$MDP":
             self._laser_power = float(content[0])
         else:
             _logger.debug("AdHoc meesage: %s" % raw)
@@ -427,7 +425,7 @@ class OmicronLaser(
         self.connection.write(b"?" + q + b"\r")
         raw = self._read()
         if raw.decode()[1:4] == q.decode()[:3]:
-            #_logger.debug("%s: %s" % (q, raw))
+            # _logger.debug("%s: %s" % (q, raw))
             pass
         else:
             _logger.warning("Unexpected answer to %s: %s" % (q, raw))
@@ -439,7 +437,7 @@ class OmicronLaser(
         This method reads the connection and manage ad_hoc messages
         """
         raw = self.connection.read_until(b"\r")
-        if raw.decode()[0] == '$': # Ad-hoc message
+        if raw.decode()[0] == "$":  # Ad-hoc message
             self._process_adhoc(raw)
             raw = self._read()
         return raw
@@ -519,9 +517,7 @@ class OmicronLaser(
 
     def _do_set_power(self, power: float) -> None:
         self._set_point = power
-        _logger.info(
-            f"Setting laser power to {power*100}%"
-        )
+        _logger.info(f"Setting laser power to {power*100}%")
         if self.is_on:
             self.set_level_power(power)
 
