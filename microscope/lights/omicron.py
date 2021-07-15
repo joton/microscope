@@ -459,6 +459,11 @@ class OmicronLaser(
         self.operation_mode = OperationMode(code)
         return self.operation_mode
 
+    def set_operation_mode(self) -> bool:
+        mode = hex(int(self.operation_mode))[2:]
+        response = self._set(b"SOM", mode.encode("Latin1"))
+        return response == ">"
+
     def power_on(self) -> bool:
         response = self._ask(b"POn")[0] == ">"
         _logger.info(f"Power on: {response}")
@@ -507,10 +512,10 @@ class OmicronLaser(
     def initialize(self):
         _logger.info("Initializing...")
         self.connection.flushInput()
+        self.get_operation_mode()
+        self.operation_mode.APC_mode = False
+        self.set_operation_mode()
         self.measure_diode_power()
-
-
-
 
     def _do_set_power(self, power: float) -> None:
         self._set_point = power
