@@ -177,11 +177,11 @@ class PIstage(microscope.abc.Stage):
         return self.axis
 
     def move_by(self, delta: typing.Mapping[str, float]) -> None:
-        for name, pos in position:
-            self.axis[name].move_by(pos)
+        for name, d in delta.items():
+            self.axis[name].move_by(d)
 
     def move_to(self, position: typing.Mapping[str, float]) -> None:
-        for name, pos in position:
+        for name, pos in position.items():
             self.axis[name].move_to(pos)
 
 
