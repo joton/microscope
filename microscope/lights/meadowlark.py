@@ -46,7 +46,7 @@ class HDMIslm(microscope.abc.Device):
         self.patterns_path = path
         self.display_monitor = display_monitor  # the number of the monitor
         self.patterns = dict(enumerate(os.listdir(self.patterns_path)))
-        self.sequence = {}
+        self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
 
         self.initialize()
@@ -76,6 +76,12 @@ class HDMIslm(microscope.abc.Device):
 
     def _do_shutdown(self) -> None:
         self.app.quit()
+
+    def _do_enable(self):
+        return True
+
+    def _do_disable(self):
+        self.abort()
 
     def set_sim_sequence(self, sequence):
         # sequence is a list of tuples (angle, phase, wavelength)
@@ -135,9 +141,14 @@ class D5020(microscope.abc.Device):
         self.host = host
         self.port = port
         self.ch = ch
-        self.sequence = {}
+        self.sequence = dict(enumerate([(0, 0, 1)]))
         self.idx_image = 0
         self.calibration = calibration
+        self.parameter = [ # angle, phase, wavelength
+            self.set_angle,
+            lambda *args: None,
+            lambda *args: None,
+        ]
         # Initialize the hardware link
         self.initialize()
 
@@ -160,6 +171,10 @@ class D5020(microscope.abc.Device):
     def _vcheck(self, v):  # voltage check
         return max(0, min(v, 10000))
 
+    def set_angle(self, theta: float):
+        v = np.interp(theta, self.calibration[0], self.calibration[1])
+        self.set_voltage(v)
+
     def set_voltage(self, voltage: int):
         voltage = int(self._vcheck(voltage))
         cmd = f"inv:{self.ch},{voltage}"
@@ -176,13 +191,17 @@ class D5020(microscope.abc.Device):
         self.idx_image = target_position
         self.set_sim_diffraction_angle(target_position)
 
+    def get_parameter(self, ipar):
+        return self.sequence[self.idx_image][ipar]
+
+    def set_parameter(self, ipar, value):
+        self.parameter[ipar](value)
+
     def get_sim_diffraction_angle(self) -> float:
-        return self.sequence[self.idx_image][0]
+        return self.get_parameter[0]
 
     def set_sim_diffraction_angle(self, theta):
-        v = np.interp(theta, self.calibration[0], self.calibration[1])
-        self.set_voltage(v)
-
+        self.set_parameter[0](theta)
 
 def main():
     hdmi = HDMIslm(display_monitor=2)
