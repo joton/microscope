@@ -35,6 +35,7 @@ Tested against Ixon Ultra with atmcd64d.dll ver 2.97.30007.0.
 """
 
 import ctypes
+import ctypes.util
 import functools
 import logging
 import os
@@ -88,9 +89,11 @@ if arch == "32bit":
 else:
     _dllName = "atmcd64d"
 if os.name in ("nt", "ce"):
+    _dllName = ctypes.util.find_library(_dllName)
     _dll = ctypes.WinDLL(_dllName)
 else:
     _dll = ctypes.CDLL(_dllName + ".so")
+_logger.info("dll loaded")
 
 # Andor's types
 at_32 = c_long
@@ -1442,6 +1445,7 @@ class AndorAtmcd(
         """Initialize the library and hardware and create Setting objects."""
         _logger.info("Initializing ...")
         num_cams = GetAvailableCameras()
+        _logger.info("%d cameras are available" % num_cams)
         if self._index >= num_cams:
             msg = "Requested camera %d, but only found %d cameras" % (
                 self._index,
@@ -1457,9 +1461,6 @@ class AndorAtmcd(
             self._set_roi(microscope.ROI(0, 0, 0, 0))
             self._set_binning(microscope.Binning(1, 1))
             # Check info bits to see if initialization successful.
-            info = GetCameraInformation(self._index)
-            if not info & 1 << 2:
-                raise microscope.InitialiseError("... initialization failed.")
             self._caps = GetCapabilities()
             model = GetHeadModel()
             serial = self.get_id()
