@@ -1718,7 +1718,11 @@ class AndorAtmcd(
         with self:
             exposure, accumulate, kinetic = GetAcquisitionTimings()
             readout = GetReadOutTime()
-        return exposure + readout
+            # IMD 20210422 DeepSIM timing is wrong as the keepclear cycles are
+            # not accounted for.
+            # return exposure + readout
+            # This appears to allow the correct time between trigger pulses.
+            return kinetic
 
     def _set_readout_mode(self, mode_index):
         """Configure channel, amplifier and VS-speed."""
@@ -1743,19 +1747,6 @@ class AndorAtmcd(
         """Return the sensor temperature."""
         with self:
             return GetTemperature()[1]
-
-    def get_trigger_type(self):
-        """Return the microscope.devices trigger type.
-
-        deprecated, use trigger_mode and trigger_type properties.
-        """
-        trig = self.get_setting("TriggerMode")
-        if trig == TriggerMode.BULB:
-            return microscope.abc.TRIGGER_DURATION
-        elif trig == TriggerMode.SOFTWARE:
-            return microscope.abc.TRIGGER_SOFT
-        else:
-            return microscope.abc.TRIGGER_BEFORE
 
     def soft_trigger(self):
         """Send a software trigger signal.

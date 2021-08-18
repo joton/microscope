@@ -1116,10 +1116,9 @@ STATUS_STRINGS = {
 class TriggerMode:
     """A microscope trigger mode using PVCAM PMODES."""
 
-    def __init__(self, label, pv_mode, microscope_mode):
+    def __init__(self, label, pv_mode):
         self.label = label
         self.pv_mode = pv_mode
-        self.microscope_mode = microscope_mode
 
     def __repr__(self):
         return "<%s: '%s'>" % (type(self).__name__, self.label)
@@ -1137,18 +1136,12 @@ class TriggerMode:
 
 # Trigger mode definitions.
 TRIGGER_MODES = {
-    TRIG_SOFT: TriggerMode(
-        "software", TIMED_MODE, microscope.abc.TRIGGER_SOFT
-    ),
-    TRIG_TIMED: TriggerMode("timed", TIMED_MODE, -1),
-    TRIG_VARIABLE: TriggerMode("variable timed", VARIABLE_TIMED_MODE, -1),
-    TRIG_FIRST: TriggerMode(
-        "trig. first", TRIGGER_FIRST_MODE, microscope.abc.TRIGGER_BEFORE,
-    ),
-    TRIG_STROBED: TriggerMode(
-        "strobed", STROBED_MODE, microscope.abc.TRIGGER_BEFORE
-    ),
-    TRIG_BULB: TriggerMode("bulb", BULB_MODE, microscope.abc.TRIGGER_DURATION),
+    TRIG_SOFT: TriggerMode("software", TIMED_MODE),
+    TRIG_TIMED: TriggerMode("timed", TIMED_MODE),
+    TRIG_VARIABLE: TriggerMode("variable timed", VARIABLE_TIMED_MODE),
+    TRIG_FIRST: TriggerMode("trig. first", TRIGGER_FIRST_MODE),
+    TRIG_STROBED: TriggerMode("strobed", STROBED_MODE),
+    TRIG_BULB: TriggerMode("bulb", BULB_MODE),
 }
 
 PV_MODE_TO_TRIGGER = {
@@ -1202,6 +1195,10 @@ class PVParam:
         self.param_id = param_id
         self.name = _param_to_name[param_id]
         self._pvtype = param_id >> 24 & 255
+        if self.name == "PARAM_READOUT_TIME":
+            # Bugged. Here is what the SDK says: "The parameter type is
+            # incorrectly defined. The actual type is TYPE_UNS32."
+            self._pvtype = TYPE_UNS32
         self.dtype = _dtypemap[self._pvtype]
         self._ctype = _typemap[self._pvtype]
         self.__cache = {}
@@ -1459,6 +1456,12 @@ class PVCamera(
         else:
             self._params[PARAM_EXP_RES].set_value(EXP_RES_ONE_MILLISEC)
             t_exp = int(self.exposure_time * 1e3)
+        # Determine the data type of the buffer
+        # Kinetix has an 8 bit mode, may need more options for colour
+        # cameras.
+        buffer_dtype = "uint16"
+        if self._params[PARAM_BIT_DEPTH].current == 8:
+            buffer_dtype = "uint8"
         # Configure camera, allocate buffer, and register callback.
         if self._trigger == TRIG_SOFT:
             # Software triggering for single frames.
@@ -1492,18 +1495,24 @@ class PVCamera(
                 self.roi.width // self.binning.h,
             )
             self._buffer = np.require(
-                np.zeros(buffer_shape, dtype="uint16"),
+                np.zeros(buffer_shape, dtype=buffer_dtype),
                 requirements=["C_CONTIGUOUS", "ALIGNED", "OWNDATA"],
             )
         else:
             # Use a circular buffer.
             self._using_callback = True
 
+            # Determine the data type of the frame
+            frame_type = uns16
+            if buffer_dtype == "uint8":
+                frame_type = uns8
+
             def cb():
                 """Circular buffer mode end-of-frame callback."""
                 timestamp = time.time()
                 frame_p = ctypes.cast(
-                    _exp_get_latest_frame(self.handle), ctypes.POINTER(uns16)
+                    _exp_get_latest_frame(self.handle),
+                    ctypes.POINTER(frame_type),
                 )
                 frame = np.ctypeslib.as_array(
                     frame_p, (self.roi[2], self.roi[3])
@@ -1523,7 +1532,7 @@ class PVCamera(
                 self.roi.width // self.binning.h,
             )
             self._buffer = np.require(
-                np.zeros(buffer_shape, dtype="uint16"),
+                np.zeros(buffer_shape, dtype=buffer_dtype),
                 requirements=["C_CONTIGUOUS", "ALIGNED", "OWNDATA"],
             )
             nbytes = _exp_setup_cont(
@@ -1800,13 +1809,6 @@ class PVCamera(
         Just return self.cycle_time, which is updated with the real
         value during _do_enable."""
         return self.cycle_time
-
-    def get_trigger_type(self):
-        """Return the current trigger type.
-
-        Deprecated, get the trigger_mode and trigger_type property.
-        """
-        return TRIGGER_MODES[self._trigger].microscope_mode
 
     @Pyro4.oneway
     def soft_trigger(self):
