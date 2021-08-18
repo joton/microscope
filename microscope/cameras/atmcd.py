@@ -1378,6 +1378,8 @@ class AndorAtmcd(
         # The following parameters will be populated after hardware init.
         self._roi = None
         self._binning = None
+        self._last_trig = 0
+        self._cycle = 0
         self.initialize()
 
     def _bind(self, fn):
@@ -1723,6 +1725,7 @@ class AndorAtmcd(
             # not accounted for.
             # return exposure + readout
             # This appears to allow the correct time between trigger pulses.
+            self._cycle = kinetic 
             return kinetic
 
     def _set_readout_mode(self, mode_index):
@@ -1754,8 +1757,7 @@ class AndorAtmcd(
 
         Deprecated, use trigger().
         """
-        with self:
-            SendSoftwareTrigger()
+        self.trigger()
 
     @property
     def trigger_mode(self) -> microscope.TriggerMode:
@@ -1777,8 +1779,22 @@ class AndorAtmcd(
         self.set_setting("TriggerMode", atmcd_mode)
 
     def _do_trigger(self) -> None:
+        _logger.debug("Trigger")
         with self:
-            SendSoftwareTrigger()
+            delta = self._last_trig + self._cycle - time.time()
+            if delta > 0:
+                _logger.debug("Sleep %.3f" % delta)
+                time.sleep(delta)
+            try:
+                SendSoftwareTrigger()
+            except AtmcdException as e:
+                if e.status == DRV_ERROR_ACK:
+                    _logger.debug(" Previous acquisition not complete")
+                    time.sleep(0.010)
+                    self.trigger()
+                else:
+                    raise
+            self._last_trig = time.time()
 
     def _get_binning(self):
         """Return the binning setting."""
