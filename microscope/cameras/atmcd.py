@@ -1431,6 +1431,11 @@ class AndorAtmcd(
         try:
             with self:
                 AbortAcquisition()
+                # Close shutter
+                if self._caps.ulFeatures & AC_FEATURES_SHUTTEREX:
+                    SetShutterEx(1, 2, 1, 1, 2)
+                else:
+                    SetShutter(1, 2, 1, 1)
         except AtmcdException as e:
             if e.status != DRV_IDLE:
                 raise
@@ -1464,6 +1469,7 @@ class AndorAtmcd(
             self._set_binning(microscope.Binning(1, 1))
             # Check info bits to see if initialization successful.
             self._caps = GetCapabilities()
+            _logger.debug("Capabilities %s" % str(self._caps))
             model = GetHeadModel()
             serial = self.get_id()
             # Populate amplifiers
@@ -1659,7 +1665,10 @@ class AndorAtmcd(
             self.abort()
         with self:
             SetAcquisitionMode(AcquisitionMode.RUNTILLABORT)
-            SetShutter(1, 1, 1, 1)
+            if self._caps.ulFeatures & AC_FEATURES_SHUTTEREX:
+                SetShutterEx(1, 1, 1, 1, 1)
+            else:
+                SetShutter(1, 1, 1, 1)
             SetReadMode(ReadMode.IMAGE)
             x, y = GetDetector()
             self._set_image()
