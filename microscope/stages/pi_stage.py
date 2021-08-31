@@ -44,6 +44,7 @@ DEVICES = [
 
 import logging
 import serial
+import threading
 import microscope
 import typing
 from .pi_message import PI_CTRL_ERROR
@@ -55,6 +56,10 @@ class PIaxis(microscope.abc.StageAxis):
     def __init__(self, stage, axis):
         self.stage = stage
         self.axis = axis
+        self.pos = 0
+
+    def refresh(self):
+        self.pos = self.stage._axis_get("POS?", self.axis)
 
     def move_by(self, delta: float) -> None:
         if self.close_loop:
@@ -70,7 +75,7 @@ class PIaxis(microscope.abc.StageAxis):
 
     @property
     def position(self) -> float:
-        return self.stage._axis_get("POS?", self.axis)
+        return self.pos
 
     @property
     def velocity(self) -> float:
@@ -108,13 +113,15 @@ class PIaxis(microscope.abc.StageAxis):
 class PIstage(microscope.abc.Stage):
 
     _comm = None
+    REFRESH_RATE = 0.2
 
-    # TODO: understand who is passing index on construction.
-    def __init__(self, url=None, index=0):
-        super().__init__()
+    def __init__(self, url=None, **kwargs):
+        super().__init__(**kwargs)
         self.url = url
+        self.comm_lock = threading.Lock()
 
-        for k, v in self.axis.items():
+        self.axis = {}
+        for k, v in self.axes_ids.items():
             self.axis[k] = PIaxis(self, v)
 
         self.initialize()
@@ -140,17 +147,27 @@ class PIstage(microscope.abc.Stage):
         for name, axis in self.axis.items():
             axis.close_loop = True
 
+        # set refresh loop
+        self.refresh_loop = True
+        self.thread = threading.Thread(target=self._refresh)
+        self.thread.start()
+
     def _do_shutdown(self) -> None:
+        self.refresh_loop = False
+        self.thread.join(timeout=2)
         if self._comm is not None:
-            self._comm.close()
+            with self.comm_lock:
+                self._comm.close()
 
     def _send_cmd(self, cmd):
-        self._comm.write(cmd.encode() + b"\n")
+        with self.comm_lock:
+            self._comm.write(cmd.encode() + b"\n")
 
     def _ask_cmd(self, cmd):
         try:
-            self._send_cmd(cmd)
-            ans = self._comm.read(1024)
+            with self.comm_lock:
+                self._comm.write(cmd.encode() + b"\n")
+                ans = self._comm.read(1024)
         except:
             raise
         return ans.decode()
@@ -172,6 +189,11 @@ class PIstage(microscope.abc.Stage):
             _logger.error("ERROR[{}] {}\n".format(err, msg))
         return err
 
+    def _refresh(self):
+        while self.refresh_loop:
+            for name, axis in self.axis.items():
+                axis.refresh()
+        
     @property
     def axes(self) -> typing.Mapping[str, microscope.abc.StageAxis]:
         return self.axis
@@ -186,8 +208,8 @@ class PIstage(microscope.abc.Stage):
 
 
 class PIe754(PIstage):
-    axis = {"z": 1}
+    axes_ids = {"z": 1}
 
 
 class PIm687(PIstage):
-    axis = {"y": 1, "x": 2}
+    axes_ids = {"y": 1, "x": 2}
