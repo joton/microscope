@@ -1787,6 +1787,12 @@ class AndorAtmcd(
             )
         self.set_setting("TriggerMode", atmcd_mode)
 
+    def set_transform(self, tr):
+        "Set flip LR, flip UD and rotate 90"
+        flip_lr, flip_ud, rot = tr
+        SetImageFlip(flip_lr, flip_ud)
+        SetImageRotate(rot)
+        
     def _do_trigger(self) -> None:
         _logger.debug("Trigger")
         with self:
