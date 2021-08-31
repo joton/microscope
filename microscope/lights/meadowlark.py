@@ -31,6 +31,7 @@ import threading
 import numpy as np
 import Pyro4
 
+from PIL import Image, ImageOps
 from PyQt5.QtWidgets import QApplication, QDesktopWidget, QLabel, QMainWindow
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -53,7 +54,35 @@ class HDMIslm(microscope.abc.Modulator):
         self.patterns = {}
         self.app = None
 
-        self.set_sequence([(0, 60, 488e-9)])
+        self.fresnel_focal = 0.5
+        self.add_setting(
+            "Focal",
+            "float",
+            self.get_focal,
+            self.set_focal,
+            (0, 100),
+        )
+
+        self.grating_period = 10
+        self.add_setting(
+            "Period",
+            "float",
+            self.get_period,
+            self.set_period,
+            (0, 100),
+        )
+
+        self.image = None
+        self.image_path = "None"
+        self.add_setting(
+            "Image",
+            "str",
+            self.get_image,
+            self.set_image,
+            100,
+        )
+
+        self.set_sequence([(0, 0, 488e-9)])
         self.initialize()
 
     def _run_qt(self):
@@ -94,7 +123,7 @@ class HDMIslm(microscope.abc.Modulator):
         # prepare the list of patterns according to the sequence
         self.patterns = {}
         self.sequence = dict(enumerate(sequence))
-        print("sequence %s" % str(self.sequence))
+        _logger.debug("sequence %s" % str(self.sequence))
         for i, (angle, phase, wavelength) in enumerate(sequence):
             self.patterns[i] = self.gen_pattern(angle, phase, wavelength)
 
@@ -141,14 +170,62 @@ class HDMIslm(microscope.abc.Modulator):
         return binarized_array
 
     def gen_pattern(self, angle, phase, wavelength):
-        grating = self.binarize(self.linearGrating(10, angle, phase), 0, 0.5)
-        fresnel = self.fresnelLens(0.5, self.Nx / 2, self.Ny / 2, wavelength)
+        pattern = np.zeros((self.Ny, self.Nx))
+        if self.grating_period > 0:
+            pattern += self.binarize(self.linearGrating(self.grating_period,
+                                                   angle, phase), 0, 0.5)
+        if self.fresnel_focal > 0:
+            pattern += self.fresnelLens(self.fresnel_focal,
+                                   self.Nx / 2, self.Ny / 2,
+                                   wavelength)
+        if self.image is not None:
+            pattern += self.image
 
-        total = np.mod(grating + fresnel, 1)
+        total = np.mod(pattern, 1)
         m, M = 0, 1
         max_, min_ = 255, 0
         normalized = (max_ - min_) / (M - m) * (total - m) + min_
         return normalized.astype(np.uint8)
+
+    def get_focal(self):
+        return self.fresnel_focal
+
+    def set_focal(self, f):
+        self.fresnel_focal = f
+        self.patterns[self.idx_image] = self.gen_pattern(self.angle,
+                                                         self.phase,
+                                                         self.wavelength)
+        self._update()
+
+    def get_period(self):
+        return self.grating_period
+
+    def set_period(self, p):
+        self.grating_period = p
+        self.patterns[self.idx_image] = self.gen_pattern(self.angle,
+                                                         self.phase,
+                                                         self.wavelength)
+        self._update()
+
+    def get_image(self):
+        return self.image_path
+
+    def set_image(self, path):
+        _logger.debug("Set image %s" % path)
+        self.image_path = "None"
+        self.image = None
+        try:
+            img = ImageOps.grayscale(Image.open(path))
+            if (self.Nx, self.Ny) == img.size:
+                self.image = np.asarray(img) / 255 * 0.5
+                self.image_path = path
+                _logger.debug("Image %s loaded" % path)
+        except Exception as e:
+            _logger.debug(e)
+        self.patterns[self.idx_image] = self.gen_pattern(self.angle,
+                                                         self.phase,
+                                                         self.wavelength)
+        self._update()
 
 
 class D5020(microscope.abc.Modulator):
@@ -201,7 +278,7 @@ class D5020(microscope.abc.Modulator):
     def set_sequence(self, sequence):
         # sequence is a list of tuples (angle, phase, wavelength)
         self.sequence = dict(enumerate(sequence))
-        print("sequence %s" % str(self.sequence))
+        _logger.debug("sequence %s" % str(self.sequence))
 
     def _update(self):
         angle = self.sequence[self.idx_image][0]
@@ -213,7 +290,7 @@ class D5020(microscope.abc.Modulator):
 
     def set_angle(self, theta: float):
         v = self.calc_voltage(theta)
-        print("Voltage %0.3f for angle %0.0f" % (v, theta))
+        _logger.debug("Voltage %0.3f for angle %0.0f" % (v, theta))
         self.set_voltage(v)
 
     def set_voltage(self, voltage: int):
