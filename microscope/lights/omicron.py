@@ -21,10 +21,12 @@
 import logging
 from enum import Enum, auto
 import serial
+import time
 
 import microscope._utils
 import microscope.abc
-
+from microscope import TriggerType
+from microscope import TriggerMode
 
 _logger = logging.getLogger(__name__)
 
@@ -415,6 +417,7 @@ class OmicronLaser(
         self.specs = self._ask(b"GSI")
         self.wavelength = float(self.specs[0])
         self._max_power_mw = self.get_maximum_power()
+        self.exposure = 100 # ms
         self.mode = LaserMode.APC
 
         _logger.info(
@@ -576,3 +579,27 @@ class OmicronLaser(
     def get_is_on(self):
         _logger.info(f"is on: {self.is_on}")
         return self.is_on
+
+    @property
+    def trigger_mode(self) -> TriggerMode:
+        return TriggerMode.ONCE
+
+    @property
+    def trigger_type(self) -> TriggerType:
+        return TriggerType.SOFTWARE
+
+    def _do_trigger(self) -> None:
+        """Actual trigger of the device.
+        """
+        _logger.debug("trigger")
+        self._set_mode(self.mode)
+        time.sleep(self.exposure / 1000.)
+        self._set_mode(LaserMode.STANDBY)
+
+    def set_exposure_time(self, value):
+        """Set exposure time."""
+        self.exposure = value
+
+    def get_exposure_time(self):
+        """Get exposure time."""
+        return self.exposure
