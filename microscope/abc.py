@@ -42,9 +42,6 @@ import microscope
 _logger = logging.getLogger(__name__)
 
 
-# Trigger types.
-(TRIGGER_AFTER, TRIGGER_BEFORE, TRIGGER_DURATION, TRIGGER_SOFT) = range(4)
-
 # Mapping of setting data types descriptors to allowed-value types.
 #
 # We use a descriptor for the type instead of the actual type because
@@ -192,12 +189,31 @@ class FloatingDeviceMixin(metaclass=abc.ABCMeta):
     """A mixin for devices that 'float'.
 
     Some SDKs handling multiple devices do not allow for explicit
-    selection of a specific device.  Instead, a device must be
-    initialized and then queried to determine its ID. This class is a
-    mixin which identifies a subclass as floating, and enforces the
-    implementation of a `get_id` method.
+    selection of a specific device.  Instead, when the SDK is
+    initialised it assigns an index to each device.  However, this
+    index is only unique until the program ends and next time the
+    program runs the device might be assigned a different index.  This
+    means that it is not possible to request a specific device to the
+    SDK.  Instead, one connects to one of the available devices, then
+    initialises it, and only then can one check which one we got.
+
+    Floating devices are a problem in systems where there are multiple
+    devices of the same type but we only want to initialise a subset
+    of them.  Make sure that a device really is a floating device
+    before making use of this class.  Avoid it if possible.
+
+    This class is a mixin which enforces the implementation of a
+    `get_id` method, which typically returns the device serial number.
+
+    Args:
+        index: the index of the device on a shared library.  This
+            argument is added by the device_server program.
 
     """
+
+    def __init__(self, index: int, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._index = index
 
     @abc.abstractmethod
     def get_id(self) -> str:
@@ -268,18 +284,11 @@ class TriggerTargetMixin(metaclass=abc.ABCMeta):
 
 
 class Device(metaclass=abc.ABCMeta):
-    """A base device class. All devices should subclass this class.
+    """A base device class. All devices should subclass this class."""
 
-    Args:
-        index: the index of the device on a shared library.  This
-            argument is added by the deviceserver.
-
-    """
-
-    def __init__(self, index: typing.Optional[int] = None) -> None:
+    def __init__(self) -> None:
         self.enabled = False
         self._settings: typing.Dict[str, _Setting] = {}
-        self._index = index
 
     def __del__(self) -> None:
         self.shutdown()
@@ -981,16 +990,6 @@ class Camera(TriggerTargetMixin, DataDevice):
             roi = microscope.ROI(left, top, width, height)
         return self._set_roi(roi)
 
-    def get_trigger_type(self):
-        """Return the current trigger mode.
-
-        One of
-            TRIGGER_AFTER,
-            TRIGGER_BEFORE or
-            TRIGGER_DURATION (bulb exposure.)
-        """
-        pass
-
 
 class SerialDeviceMixin(metaclass=abc.ABCMeta):
     """Mixin for devices that are controlled via serial.
@@ -1554,3 +1553,99 @@ class Stage(Device, metaclass=abc.ABCMeta):
 
         """
         raise NotImplementedError()
+
+
+class Modulator(Device, metaclass=abc.ABCMeta):
+    """Base class for Light Modulators.
+
+    Each modulator pattern is bassed on three parameters:
+    angle, phase, wavelength.
+
+    One can either set a sequence of patterns as a list of tuples
+    and loop over it or to set any of these parameters.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.sequence = dict(enumerate([(0, 0, 1)]))
+        self.idx_image = 0
+
+    def set_sequence(self, sequence):
+        self.sequence = dict(enumerate(sequence))
+
+    @property
+    def position(self) -> float:
+        """
+        Get current possition in the sequence
+        """
+        _logger.debug(f"Position {self.idx_image}")
+        return self.idx_image
+
+    @position.setter
+    def position(self, position: float) -> None:
+        """
+        Go to the given position in the sequence
+        """
+        _logger.debug(f"Set Position {position}")
+        self.idx_image = int(position)
+        self._update()
+
+    @property
+    def angle(self) -> float:
+        angle = self.get_parameter(0)
+        _logger.debug(f"Angle {angle}")
+        return angle
+
+    @angle.setter
+    def angle(self, angle: float) -> None:
+        _logger.debug(f"Set Angle {angle}")
+        self.set_parameter(0, angle)
+
+    @property
+    def phase(self):
+        phase = self.get_parameter(1)
+        _logger.debug(f"Phase {phase}")
+        return phase
+
+    @phase.setter
+    def phase(self, phase):
+        _logger.debug(f"Set Phase {phase}")
+        self.set_parameter(1, phase)
+
+    @property
+    def wavelength(self):
+        wavelength = self.get_parameter(2)
+        _logger.debug(f"Wavelength {wavelength}")
+        return wavelength
+
+    @wavelength.setter
+    def wavelength(self, wavelength):
+        _logger.debug(f"Set Wavelength {wavelength}")
+        self.set_parameter(2, wavelength)
+
+    def get_parameter(self, ipar):
+        return self.sequence[self.idx_image][ipar]
+
+    def set_parameter(self, ipar, value):
+        par = list(self.sequence[self.idx_image])
+        par[ipar] = value
+        for i, step in self.sequence.items():
+            if list(step) == par:
+                self.idx_image = i
+                self._update()
+                return
+        raise RuntimeError(f"State not found")
+
+    @abc.abstractmethod
+    def _update(self):
+        raise NotImplementedError()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        n = self.idx_image
+        n += 1
+        if n >= len(self.sequence):
+            n = 0
+        self.idx_image = n

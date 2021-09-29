@@ -35,6 +35,7 @@ Tested against Ixon Ultra with atmcd64d.dll ver 2.97.30007.0.
 """
 
 import ctypes
+import ctypes.util
 import functools
 import logging
 import os
@@ -88,9 +89,11 @@ if arch == "32bit":
 else:
     _dllName = "atmcd64d"
 if os.name in ("nt", "ce"):
+    _dllName = ctypes.util.find_library(_dllName)
     _dll = ctypes.WinDLL(_dllName)
 else:
     _dll = ctypes.CDLL(_dllName + ".so")
+_logger.info("dll loaded")
 
 # Andor's types
 at_32 = c_long
@@ -1375,6 +1378,8 @@ class AndorAtmcd(
         # The following parameters will be populated after hardware init.
         self._roi = None
         self._binning = None
+        self._last_trig = 0
+        self._cycle = 0
         self.initialize()
 
     def _bind(self, fn):
@@ -1426,6 +1431,11 @@ class AndorAtmcd(
         try:
             with self:
                 AbortAcquisition()
+                # Close shutter
+                if self._caps.ulFeatures & AC_FEATURES_SHUTTEREX:
+                    SetShutterEx(1, 2, 1, 1, 2)
+                else:
+                    SetShutter(1, 2, 1, 1)
         except AtmcdException as e:
             if e.status != DRV_IDLE:
                 raise
@@ -1442,6 +1452,7 @@ class AndorAtmcd(
         """Initialize the library and hardware and create Setting objects."""
         _logger.info("Initializing ...")
         num_cams = GetAvailableCameras()
+        _logger.info("%d cameras are available" % num_cams)
         if self._index >= num_cams:
             msg = "Requested camera %d, but only found %d cameras" % (
                 self._index,
@@ -1457,10 +1468,8 @@ class AndorAtmcd(
             self._set_roi(microscope.ROI(0, 0, 0, 0))
             self._set_binning(microscope.Binning(1, 1))
             # Check info bits to see if initialization successful.
-            info = GetCameraInformation(self._index)
-            if not info & 1 << 2:
-                raise microscope.InitialiseError("... initialization failed.")
             self._caps = GetCapabilities()
+            _logger.debug("Capabilities %s" % str(self._caps))
             model = GetHeadModel()
             serial = self.get_id()
             # Populate amplifiers
@@ -1656,7 +1665,10 @@ class AndorAtmcd(
             self.abort()
         with self:
             SetAcquisitionMode(AcquisitionMode.RUNTILLABORT)
-            SetShutter(1, 1, 1, 1)
+            if self._caps.ulFeatures & AC_FEATURES_SHUTTEREX:
+                SetShutterEx(1, 1, 1, 1, 1)
+            else:
+                SetShutter(1, 1, 1, 1)
             SetReadMode(ReadMode.IMAGE)
             x, y = GetDetector()
             self._set_image()
@@ -1718,7 +1730,12 @@ class AndorAtmcd(
         with self:
             exposure, accumulate, kinetic = GetAcquisitionTimings()
             readout = GetReadOutTime()
-        return exposure + readout
+            # IMD 20210422 DeepSIM timing is wrong as the keepclear cycles are
+            # not accounted for.
+            # return exposure + readout
+            # This appears to allow the correct time between trigger pulses.
+            self._cycle = kinetic 
+            return kinetic
 
     def _set_readout_mode(self, mode_index):
         """Configure channel, amplifier and VS-speed."""
@@ -1744,26 +1761,12 @@ class AndorAtmcd(
         with self:
             return GetTemperature()[1]
 
-    def get_trigger_type(self):
-        """Return the microscope.devices trigger type.
-
-        deprecated, use trigger_mode and trigger_type properties.
-        """
-        trig = self.get_setting("TriggerMode")
-        if trig == TriggerMode.BULB:
-            return microscope.abc.TRIGGER_DURATION
-        elif trig == TriggerMode.SOFTWARE:
-            return microscope.abc.TRIGGER_SOFT
-        else:
-            return microscope.abc.TRIGGER_BEFORE
-
     def soft_trigger(self):
         """Send a software trigger signal.
 
         Deprecated, use trigger().
         """
-        with self:
-            SendSoftwareTrigger()
+        self.trigger()
 
     @property
     def trigger_mode(self) -> microscope.TriggerMode:
@@ -1784,9 +1787,29 @@ class AndorAtmcd(
             )
         self.set_setting("TriggerMode", atmcd_mode)
 
+    def set_transform(self, tr):
+        "Set flip LR, flip UD and rotate 90"
+        flip_lr, flip_ud, rot = tr
+        SetImageFlip(flip_lr, flip_ud)
+        SetImageRotate(rot)
+        
     def _do_trigger(self) -> None:
+        _logger.debug("Trigger")
         with self:
-            SendSoftwareTrigger()
+            delta = self._last_trig + self._cycle - time.time()
+            if delta > 0:
+                _logger.debug("Sleep %.3f" % delta)
+                time.sleep(delta)
+            try:
+                SendSoftwareTrigger()
+            except AtmcdException as e:
+                if e.status == DRV_ERROR_ACK:
+                    _logger.debug(" Previous acquisition not complete")
+                    time.sleep(0.010)
+                    self.trigger()
+                else:
+                    raise
+            self._last_trig = time.time()
 
     def _get_binning(self):
         """Return the binning setting."""
