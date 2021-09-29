@@ -19,12 +19,14 @@
 ## along with Microscope.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
-from enum import Enum
+from enum import Enum, auto
 import serial
+import time
 
 import microscope._utils
 import microscope.abc
-
+from microscope import TriggerType
+from microscope import TriggerMode
 
 _logger = logging.getLogger(__name__)
 
@@ -271,16 +273,16 @@ class OperationMode:
     def __repr__(self) -> str:
         return """{{ "hex": "{}", "bin": "{}", 
             "internal_clock_generator": {},
-            bias_level_release {},
-            "operating_level_release", {},
-            "digital_input_release", {},
-            "analog_input_release", {},
-            "APC_mode", {},
-            "digital_input_impedance", {},
-            "analog_input_impedance", {},
-            "usb_adhoc_mode", {},
-            "auto_startup", {},
-            "auto_powerup", {}
+            "bias_level_release": {},
+            "operating_level_release": {},
+            "digital_input_release": {},
+            "analog_input_release": {},
+            "APC_mode": {},
+            "digital_input_impedance": {},
+            "analog_input_impedance": {},
+            "usb_adhoc_mode": {},
+            "auto_startup": {},
+            "auto_powerup": {}
         }}""".format(
             hex(int(self)),
             bin(int(self)),
@@ -333,6 +335,10 @@ class CalibrationResult(Enum):
     OVER_POWER_OCURRED = 13
     UNKNOWN_ERROR = 14
 
+class LaserMode(Enum):
+    STANDBY = auto()
+    APC = auto()
+    ACC = auto()
 
 class OmicronLaser(
     microscope._utils.OnlyTriggersBulbOnSoftwareMixin,
@@ -411,6 +417,8 @@ class OmicronLaser(
         self.specs = self._ask(b"GSI")
         self.wavelength = float(self.specs[0])
         self._max_power_mw = self.get_maximum_power()
+        self.exposure = 100 # ms
+        self.mode = LaserMode.APC
 
         _logger.info(
             f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}."
@@ -418,6 +426,14 @@ class OmicronLaser(
         _logger.info(f"\tSerial Number: {self.serial_number}")
         _logger.info(f"\tWavelength: {self.wavelength}")
         _logger.info(f"\tPower: {self._max_power_mw}")
+
+        self.add_setting(
+            "Mode",
+            "enum",
+            self.get_mode,
+            self.set_mode,
+            LaserMode,
+        )
 
         self.initialize()
 
@@ -505,14 +521,33 @@ class OmicronLaser(
         self.power_off()
         self.connection.flushInput()
 
+    def get_mode(self) -> LaserMode:
+        return self.mode
+
+    def set_mode(self, mode: LaserMode) -> None:
+        if mode != LaserMode.STANDBY:
+            self.mode = mode
+        self._set_mode(mode)
+
+    def _set_mode(self, mode: LaserMode) -> None:
+        self.get_operation_mode()
+        self.operation_mode.bias_level_release = True
+        self.operation_mode.operating_level_release = True
+        if mode == LaserMode.STANDBY:
+            self.operation_mode.bias_level_release = False
+            self.operation_mode.operating_level_release = False
+        elif mode == LaserMode.APC:
+            self.operation_mode.APC_mode = True
+        elif mode == LaserMode.ACC:
+            self.operation_mode.APĈ_mode = False
+        self.set_operation_mode()
+
     #  Initialization to do when cockpit connects.
 
     def initialize(self):
         _logger.info("Initializing...")
         self.connection.flushInput()
-        self.get_operation_mode()
-        self.operation_mode.APC_mode = False
-        self.set_operation_mode()
+        self._set_mode(LaserMode.STANDBY)
         self.measure_diode_power()
 
     def _do_set_power(self, power: float) -> None:
@@ -544,3 +579,27 @@ class OmicronLaser(
     def get_is_on(self):
         _logger.info(f"is on: {self.is_on}")
         return self.is_on
+
+    @property
+    def trigger_mode(self) -> TriggerMode:
+        return TriggerMode.ONCE
+
+    @property
+    def trigger_type(self) -> TriggerType:
+        return TriggerType.SOFTWARE
+
+    def _do_trigger(self) -> None:
+        """Actual trigger of the device.
+        """
+        _logger.debug("trigger")
+        self._set_mode(self.mode)
+        time.sleep(self.exposure / 1000.)
+        self._set_mode(LaserMode.STANDBY)
+
+    def set_exposure_time(self, value):
+        """Set exposure time."""
+        self.exposure = value
+
+    def get_exposure_time(self):
+        """Get exposure time."""
+        return self.exposure
