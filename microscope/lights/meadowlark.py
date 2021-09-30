@@ -54,22 +54,22 @@ class HDMIslm(microscope.abc.Modulator):
         self.patterns = {}
         self.app = None
 
-        self.fresnel_focal = 0.5
+        self.fresnel_focal = 0.0
         self.add_setting(
             "Focal",
             "float",
             self.get_focal,
             self.set_focal,
-            (0, 100),
+            (0, 1000),
         )
 
-        self.grating_period = 10
+        self.grating_period = 50
         self.add_setting(
             "Period",
             "float",
             self.get_period,
             self.set_period,
-            (0, 100),
+            (0, 1200),
         )
 
         self.image = None
