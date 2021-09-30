@@ -270,17 +270,14 @@ class TriggerTargetMixin(metaclass=abc.ABCMeta):
         documentation for the devices implementing this interface for
         details.
 
-        Raises:
-            microscope.IncompatibleStateError: if trigger type is not
-                set to `TriggerType.SOFTWARE`.
-
+        When trigger type is not set to `TriggerType.SOFTWARE` the trigger
+        is ignored.
         """
-        if self.trigger_type is not microscope.TriggerType.SOFTWARE:
-            raise microscope.IncompatibleStateError(
-                "trigger type is not software"
-            )
-        _logger.debug("trigger by software")
-        self._do_trigger()
+        if self.trigger_type is microscope.TriggerType.SOFTWARE:
+            _logger.debug("trigger by software")
+            self._do_trigger()
+        else:
+            _logger.warning("Trigger type is not SOFTWARE. Trigger ignored")
 
 
 class Device(metaclass=abc.ABCMeta):
