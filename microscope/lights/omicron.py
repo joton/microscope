@@ -22,7 +22,8 @@ import logging
 from enum import Enum, auto
 import serial
 import time
-
+import threading
+from functools import partial
 import microscope._utils
 import microscope.abc
 from microscope import TriggerType
@@ -336,20 +337,14 @@ class CalibrationResult(Enum):
     UNKNOWN_ERROR = 14
 
 class LaserMode(Enum):
-    STANDBY = auto()
     APC = auto()
     ACC = auto()
 
 class OmicronLaser(
-    microscope._utils.OnlyTriggersBulbOnSoftwareMixin,
     microscope.abc.SerialDeviceMixin,
     microscope.abc.LightSource,
 ):
     """Omicron lasers.
-
-    The Omicron lasers are diode pumped lasers and only supports
-    `TriggerMode.SOFTWARE`.
-
     """
 
     @microscope.abc.SerialDeviceMixin.lock_comms
@@ -419,6 +414,8 @@ class OmicronLaser(
         self._max_power_mw = self.get_maximum_power()
         self.exposure = 100 # ms
         self.mode = LaserMode.APC
+        self._trigger_type = TriggerType.SOFTWARE
+        self.standby = True
 
         _logger.info(
             f"Omicron Laser Model: {self.model_code}, Id: {self.device_id}, Firmware: {self.firmware_version}."
@@ -428,11 +425,19 @@ class OmicronLaser(
         _logger.info(f"\tPower: {self._max_power_mw}")
 
         self.add_setting(
-            "Mode",
+            "Standby",
+            "bool",
+            lambda: self.standby,
+            self.set_standby,
+            None,
+        )
+
+        self.add_setting(
+            "Trigger",
             "enum",
-            self.get_mode,
-            self.set_mode,
-            LaserMode,
+            lambda: self._trigger_type,
+            partial(self.set_trigger, tmode=TriggerMode.ONCE),
+            TriggerType,
         )
 
         self.initialize()
@@ -518,28 +523,39 @@ class OmicronLaser(
         # Disable laser.
         _logger.info("Shuting down...")
         self.laser_off()
-        self.power_off()
         self.connection.flushInput()
 
-    def get_mode(self) -> LaserMode:
-        return self.mode
+    def set_standby(self, enabled: bool) -> None:
+        self.standby = enabled
+        self._update_mode()
 
     def set_mode(self, mode: LaserMode) -> None:
-        if mode != LaserMode.STANDBY:
-            self.mode = mode
-        self._set_mode(mode)
+        self.mode = mode
+        self._update_mode()
 
-    def _set_mode(self, mode: LaserMode) -> None:
+    def set_trigger(self, ttype: TriggerType, tmode: TriggerMode) -> None:
+        if tmode is not TriggerMode.ONCE:
+            raise microscope.UnsupportedFeatureError(
+                "the only trigger mode supported is 'once'"
+            )
+
+        self._trigger_type = ttype
+        self._update_mode()
+
+    def _update_mode(self) -> None:
         self.get_operation_mode()
-        self.operation_mode.bias_level_release = True
-        self.operation_mode.operating_level_release = True
-        if mode == LaserMode.STANDBY:
-            self.operation_mode.bias_level_release = False
-            self.operation_mode.operating_level_release = False
-        elif mode == LaserMode.APC:
+        if self._trigger_type == TriggerType.SOFTWARE:
             self.operation_mode.APC_mode = True
-        elif mode == LaserMode.ACC:
-            self.operation_mode.APĈ_mode = False
+            self.operation_mode.bias_level_release = not self.standby
+            self.operation_mode.operating_level_release = not self.standby
+        else:
+            self.operation_mode.bias_level_release = True
+            self.operation_mode.operating_level_release = True
+            if self.standby:
+                self.operation_mode.APC_mode = False
+            else:
+                # APC mode enables the light when external trigger is connected
+                self.operation_mode.APC_mode = True
         self.set_operation_mode()
 
     #  Initialization to do when cockpit connects.
@@ -547,7 +563,15 @@ class OmicronLaser(
     def initialize(self):
         _logger.info("Initializing...")
         self.connection.flushInput()
-        self._set_mode(LaserMode.STANDBY)
+        self.get_operation_mode()
+        self.operation_mode.auto_powerup = True
+        self.operation_mode.auto_startup = False
+        self.operation_mode.usb_adhoc_mode = True
+        self.operation_mode.APC_mode = True
+        self.operation_mode.analog_input_release = False
+        self.operation_mode.bias_level_release = False
+        self.operation_mode.operating_level_release = False
+        self.set_operation_mode()
         self.measure_diode_power()
 
     def _do_set_power(self, power: float) -> None:
@@ -567,6 +591,7 @@ class OmicronLaser(
             # Something went wrong.
             _logger.error("Failed to turn on. Current status:\r\n")
             _logger.error(self.get_status())
+            _logger.error(self.get_latched_failure())
             return False
         return True
 
@@ -586,15 +611,17 @@ class OmicronLaser(
 
     @property
     def trigger_type(self) -> TriggerType:
-        return TriggerType.SOFTWARE
+        return self._trigger_type
 
     def _do_trigger(self) -> None:
         """Actual trigger of the device.
         """
-        _logger.debug("trigger")
-        self._set_mode(self.mode)
-        time.sleep(self.exposure / 1000.)
-        self._set_mode(LaserMode.STANDBY)
+        if self._trigger_type == TriggerType.SOFTWARE:
+            self.set_standby(False)
+            timer = threading.Timer(self.exposure / 1000.,
+                                    self.set_standby,
+                                    (True,))
+            timer.start()
 
     def set_exposure_time(self, value):
         """Set exposure time."""
