@@ -1482,6 +1482,13 @@ class LinkamCMS(_LinkamMDSMixin, _LinkamBase):
             level = 0
         self.set_value(_StageValueType.CmsCondenserLEDLevel, level)
 
+    def set_autotopup(self, state):
+        """Turn the autotopup on or off."""
+        if state:
+            self.refill_autotopup(True)
+        else:
+            self.refill_autotopup(False)
+
     def set_condensor_level(self, level):
         """Set the condensor LED level"""
         self._condensor_level = level
@@ -1518,6 +1525,10 @@ class LinkamCMS(_LinkamMDSMixin, _LinkamBase):
     def refill_chamber(self, state=True):
         """Start a refill of the sample chamber from the internal dewar"""
         return self.set_value(_StageValueType.CmsSampleDewarFillSig, True)
+
+    def refill_autotopup(self, state=True):
+        """Enable auto top-up of the sample chamber from the internal dewar"""
+        return self.set_value(_StageValueType.CmsSolenoidRefill, state)
 
     def refill_stats(self):
         """Return information about refill times and cycle lengths."""
