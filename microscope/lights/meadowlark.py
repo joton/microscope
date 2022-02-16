@@ -143,7 +143,7 @@ class HDMIslm(microscope.abc.Modulator):
         y = np.arange(self.Ny)
         x_mesh, y_mesh = np.meshgrid(x, y)
         # phase in waves (phase in rads / 2pi)
-        phase = kx * x_mesh + ky * y_mesh + np.deg2rad(phi_deg / 360)
+        phase = kx * x_mesh + ky * y_mesh + phi_deg / 360
         return np.mod(phase, 1)
 
     def fresnelLens(self, focal, xcenter, ycenter, wavelength):
@@ -173,7 +173,8 @@ class HDMIslm(microscope.abc.Modulator):
         pattern = np.zeros((self.Ny, self.Nx))
         if self.grating_period > 0:
             pattern += self.binarize(self.linearGrating(self.grating_period,
-                                                   angle, phase), 0, 0.5)
+                                                        angle, phase), 0,
+                                     np.arccos(1-np.sqrt(2))/2/np.pi)
         if self.fresnel_focal > 0:
             pattern += self.fresnelLens(self.fresnel_focal,
                                    self.Nx / 2, self.Ny / 2,
