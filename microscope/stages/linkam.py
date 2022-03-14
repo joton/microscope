@@ -912,6 +912,7 @@ _StageValueTypeToVariant = {
     _StageValueType.VacMotorValveStatus: "vUint32",  # MVStatus - flags not yet supported
     _StageValueType.TriggerSignalsEnabled: "vBoolean",
     _StageValueType.CmsLight: "vBoolean",
+    _StageValueType.CmsCondenserLEDLevel: "vUint16",
     _StageValueType.CmsSampleDewarFillSig: "vBoolean",
     _StageValueType.CmsStatus: "vCMSStatus",
     _StageValueType.CmsError: "vCMSError",
@@ -1432,7 +1433,7 @@ class LinkamCMS(_LinkamMDSMixin, _LinkamBase):
         self._condensor_level = 100
         self.add_setting(
             "condensor",
-            "float",
+            "int",
             self.get_condensor_level,
             self.set_condensor_level,
             (0, 100),
