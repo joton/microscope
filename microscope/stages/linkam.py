@@ -917,6 +917,7 @@ _StageValueTypeToVariant = {
     _StageValueType.CmsStatus: "vCMSStatus",
     _StageValueType.CmsError: "vCMSError",
     _StageValueType.CmsMainDewarFillSig: "vBoolean",
+    _StageValueType.CmsWarmingHeater: "vBoolean",
     _StageValueType.TestMotion: "vUint16",
     _StageValueType.MotorFeedbackYX: "vUint16",
     _StageValueType.CssMode: "vUint32",  # CSSMode - enum not yet supported
