@@ -911,11 +911,13 @@ _StageValueTypeToVariant = {
     _StageValueType.MotorDrivenStageStatus: "vMDSStatus",  # MDSStatus
     _StageValueType.VacMotorValveStatus: "vUint32",  # MVStatus - flags not yet supported
     _StageValueType.TriggerSignalsEnabled: "vBoolean",
+    _StageValueType.CmsAlarmVolume: "vUint16",
     _StageValueType.CmsLight: "vBoolean",
     _StageValueType.CmsCondenserLEDLevel: "vUint16",
     _StageValueType.CmsSampleDewarFillSig: "vBoolean",
     _StageValueType.CmsStatus: "vCMSStatus",
     _StageValueType.CmsError: "vCMSError",
+    _StageValueType.CmsLashWarning:  "vBoolean",
     _StageValueType.CmsMainDewarFillSig: "vBoolean",
     _StageValueType.CmsWarmingHeater: "vBoolean",
     _StageValueType.TestMotion: "vUint16",
@@ -1439,6 +1441,24 @@ class LinkamCMS(_LinkamMDSMixin, _LinkamBase):
             self.set_condensor_level,
             (0, 100),
         )
+        # Base Heater limit
+        self._baseheater_limit = 22
+        self.add_setting(
+            "base heater limit",
+            "float",
+            self.get_baseheater_limit,
+            self.set_baseheater_limit,
+            (14.9, 30.0),
+        )
+        # Flash warning
+        self._flash_warning = True
+        self.add_setting(
+            "flash warning",
+            "bool",
+            self.get_flash_warning,
+            self.set_flash_warning,
+            None,
+        )
         # Connect to the stage.
         if self.uid:
             # Deviceserver needs uid to associate device to address, so call
@@ -1502,6 +1522,25 @@ class LinkamCMS(_LinkamMDSMixin, _LinkamBase):
         """Return the condensor level"""
         return self._condensor_level
 
+    def set_baseheater_limit(self, limit):
+        """Set the condensor LED level"""
+        self._baseheater_limit = limit
+        return self.set_value(
+            _StageValueType.CmsBaseHeaterLimit, limit)
+
+    def get_baseheater_limit(self):
+        """Return the condensor level"""
+        return self._baseheater_limit
+
+    def set_flash_warning(self, status):
+        """Set the condensor LED level"""
+        self._flash_warning = status
+        return self.set_value(
+            _StageValueType.CmsLashWarning, status)
+
+    def get_flash_warning(self):
+        """Return the condensor level"""
+        return self._flash_warning
     def get_motors(self):
         """Return the position, set point and stopped status of available motors."""
         res = {}
